@@ -1,0 +1,42 @@
+//
+// Copyright 2014 Nicolas Dumay
+//
+// Licensed under the Apache License, Version 2.0 (the "Apache License")
+// with the following modification; you may not use this file except in
+// compliance with the Apache License and the following modification to it:
+// Section 6. Trademarks. is deleted and replaced with:
+//
+// 6. Trademarks. This License does not grant permission to use the trade
+//    names, trademarks, service marks, or product names of the Licensor
+//    and its affiliates, except as required to comply with Section 4(c) of
+//    the License and to reproduce the content of the NOTICE file.
+//
+// You may obtain a copy of the Apache License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the Apache License with the above modification is
+// distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. See the Apache License for the specific
+// language governing permissions and limitations.
+
+Hi open world!
+
+Some years ago i wrote this toy. Basically it's an Arnold replacement for Nuke's scanline renderer.
+I've played around the code for two weeks and never had the time to return to it. Since I don't have
+access to Nuke anymore and because from time to time someone ask me about NtoA. Because i believe
+that there is room for that kind of tool and I would like to contribute back to the open world.
+I commit this code as is. You might found some comments in French (prints are in English...) I'm
+almost sure that Arnold part won't compile since the API have changed and I didn't know for the Nuke part.
+But all in all it worked at some point in the time. It was reading .ass and rendering it in a Nuke graph.
+It was also able to get geometry, lights and the camera from a Nuke graph. It was comming with an AiStandard
+equivalent and a Shadow caster that was taking GI in account. Even if I'm pretty sure that it can't work in batch
+and i was getting segfaults because Arnold's updates was too fast for Nuke's viewport, well it may help someone as a
+starting point.
+
+So hope this help and if possible try to contribute back to the code.
+
+DjO
+
+PS: It come with a eclipse cproject. I was using Helios at that time...
