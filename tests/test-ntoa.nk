@@ -1,0 +1,122 @@
+Root {
+ inputs 0
+ name /home/ndu/workspace/ntoa/tests/test-ntoa.nk
+ project_directory "\[python \{nuke.script_directory()\}]"
+ format "640 480 0 0 640 480 1 PC_Video"
+ proxy_type scale
+ proxy_format "1024 778 0 0 1024 778 1 1K_Super_35(full-ap)"
+}
+Camera2 {
+ inputs 0
+ translate {1.639999986 2.059999943 6.820000172}
+ name Camera1
+ xpos -299
+ ypos -61
+}
+DirectLight {
+ inputs 0
+ color {0.8307697177 0.904661119 0.9473064542}
+ color_panelDropped true
+ intensity 5
+ translate {-1.121105433 9.299994469 2.274240494}
+ rotate {-10.1359162 -107.2259991 0}
+ cast_shadows true
+ name DirectLight1
+ xpos 12
+ ypos -148
+}
+Cube {
+ inputs 0
+ translate {2.819999933 0 0}
+ scaling {1 0.01 1}
+ uniform_scale 10
+ name Cube1
+ xpos -81
+ ypos -194
+}
+ntoaStandard {
+ inputs 0
+ Kd_color3 {1 0.5127414465 0.2708666325}
+ Specular 1
+ Ks_color {0.86 0.86 0.86}
+ Ks 0.265
+ transmittance {0 nan 0}
+ sss_radius {nan 0 7.024520143e+22}
+ Advanced 1
+ name ntoaStandard1
+ xpos -293
+ ypos -216
+ postage_stamp false
+}
+set N4651d90 [stack 0]
+Sphere {
+ translate {3.220000029 1.440000057 0}
+ name Sphere1
+ xpos -192
+ ypos -216
+}
+push $N4651d90
+ReadGeo2 {
+ file ./mini_obj.obj
+ rot_order XYZ
+ translate {-0.1000000015 0 0}
+ uniform_scale 0.01
+ name ReadGeo1
+ xpos -293
+ ypos -133
+}
+Scene {
+ inputs 4
+ name Scene1
+ xpos -147
+ ypos -148
+}
+Read {
+ inputs 0
+ file ./rue.jpg
+ format "640 480 0 0 640 480 1 PC_Video"
+ origset true
+ name Read1
+ xpos 80
+ ypos -69
+}
+Grade {
+ white 0.035
+ name Grade1
+ xpos -40
+ ypos -40
+ disable true
+}
+set N553de70 [stack 0]
+ArnoldRender {
+ inputs 3
+ aa_samples 2
+ m_total_depth 4
+ sky_active true
+ sky_color {0.939589 0.944842 1}
+ sky_intensity 0.25
+ name ntoa2
+ xpos -157
+ ypos -40
+}
+push $N553de70
+Dot {
+ name Dot1
+ xpos -6
+ ypos -1
+}
+set N5559b00 [stack 0]
+Merge2 {
+ inputs 2
+ name Merge1
+ xpos -157
+ ypos -4
+}
+push $N5559b00
+Viewer {
+ input_process false
+ name Viewer1
+ selected true
+ xpos -40
+ ypos 44
+}

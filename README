@@ -39,4 +39,9 @@ So hope this help and if possible try to contribute back to the code.
 
 DjO
 
-PS: It come with a eclipse cproject. I was using Helios at that time...
+20140602 : Code cleanings!!!
+ This version of the code is a bit cleaner and missing parts have been added. Now it should compile with Nuke 8.0 and Arnold 4.1.x
+and "kind of" work.
+ I have added a sample scene. Since the code is not very stable please reconnect the viewer to the Merge. Wait for the full render to
+finish (buckets update crash nuke for now) and tadaaa, working proof of concept.
+ For now there's a limitation to 640x480 hardcoded. I'll remove it in the next push.
