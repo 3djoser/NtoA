@@ -215,7 +215,7 @@ void NTOA::translateLight(LightOp* nukeLight)
 	DD::Image::Knob* pType = nukeLight->knob("light_type");
 	if (pType)
 		lightType = pType->get_value(0);
-	// No create one
+	/* No create one
 	if (light == 0)
 	{
 		std::cout << "RENDER LOOP : Create light " << nukeLight->node_name().c_str() << " * " << lightType << std::endl;
@@ -227,6 +227,21 @@ void NTOA::translateLight(LightOp* nukeLight)
 		{
 			light = AiNode("point_light");
 		} else if (lightType == 2.0f)
+		{
+			light = AiNode("spot_light");
+		}
+	}*/
+	// No create one
+	if (light == 0)
+	{
+		std::cout << "RENDER LOOP : Create light " << nukeLight->node_name().c_str() << std::endl;
+		if       (strcmp(nukeLight->Class(), "Light") == 0)
+		{
+			light = AiNode("point_light");
+		} else if (strcmp(nukeLight->Class(), "DirectLight") == 0)
+		{
+			light = AiNode("distant_light");
+		} else if (strcmp(nukeLight->Class(), "Spotlight") == 0)
 		{
 			light = AiNode("spot_light");
 		}
