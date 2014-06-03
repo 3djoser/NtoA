@@ -53,11 +53,17 @@ public:
 
 	~NTOA();
 
-	static void translateCamera(CameraOp* nukeCamera);
+	void translateOptions(NTOA * node);
 
-	static void translateLight(LightOp* nukeLight);
+	void translateSky(NTOA * node);
 
-	static void translateGeo(GeoInfo& object);
+	void translateScene(NTOA * node);
+
+	void translateCamera(CameraOp* nukeCamera);
+
+	void translateLight(LightOp* nukeLight);
+
+	void translateGeo(GeoInfo& object);
 
 	void flagForUpdate();
 
@@ -69,13 +75,18 @@ public:
 
 	GeoOp* m_getGeo();
 
-	void _validate(bool for_real);
-
 	void mAbort();
 
-	static void  mRender(unsigned index, unsigned nthreads, void* data);
+	// Nuke call order
+	void _validate(bool for_real);
+
+	//void _request(int x, int y, int r, int t, ChannelMask channels, int count);
+
+	void _open();
 
 	void engine(int y, int xx, int r, ChannelMask channels, Row& row);
+
+	//void _close();
 
 	void knobs(Knob_Callback f);
 
@@ -91,9 +102,7 @@ public:
 	static const Iop::Description d;
 	unsigned     position;
 	double       speed;
-	bool         killthread;
 	bool         doAbort;
-	bool         inRender;
 	Lock         m_mutex; // mutex for locking the pixel buffer
     cBuffer      m_buffer; // our pixel buffer
     FormatPair   formats;

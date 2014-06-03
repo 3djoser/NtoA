@@ -7,9 +7,7 @@ NTOA::NTOA(Node* node) : RenderScene(node)
 {
 	//position 					= 0;
 	speed 						= 1.0;
-	killthread 					= false;
 	doAbort 					= false;
-	inRender 					= false;
 	//
 	m_buffer.m_node  			= this;
 	//
@@ -45,8 +43,6 @@ NTOA::NTOA(Node* node) : RenderScene(node)
     //m_sky_color      			= {1.0f, 1.0f, 1.0f };
 	m_sky_intensity  		   	= 1.0f;
 	m_sky_visibility 		   	= false;
-	// Main render thread
-	Thread::spawn(mRender, 1, this);
 };
 
 // Destroying the Op should get rid of the parallel threads.
@@ -55,8 +51,119 @@ NTOA::NTOA(Node* node) : RenderScene(node)
 // in an upcoming version, so you should implement this:
 NTOA::~NTOA()
 {
-	killthread = true;
-	Thread::wait(this);
+};
+
+void NTOA::translateOptions(NTOA * node)
+{
+	std::cout << " -> translate Options : " << node->formats.format()->width() << std::endl;
+	AtNode *options = AiUniverseGetOptions();
+	AiNodeSetInt(options, "xres", node->formats.format()->width());
+	AiNodeSetInt(options, "yres", node->formats.format()->height());
+	//
+	AiNodeSetInt(options, "AA_samples", node->m_aa_samples);
+	AiNodeSetInt(options, "GI_diffuse_depth"   , node->m_diffuse_depth);
+	AiNodeSetInt(options, "GI_glossy_depth"    , node->m_glossy_depth);
+	AiNodeSetInt(options, "GI_reflection_depth", node->m_reflection_depth);
+	AiNodeSetInt(options, "GI_refraction_depth", node->m_refraction_depth);
+	AiNodeSetInt(options, "GI_total_depth"     , node->m_total_depth);
+	AiNodeSetInt(options, "GI_diffuse_samples" , node->m_diffuse_samples);
+	AiNodeSetInt(options, "GI_sss_hemi_samples", node->m_sss_hemi_samples);
+	AiNodeSetInt(options, "GI_glossy_samples"  , node->m_glossy_samples);
+
+	// For now we create a gaussian filter node
+	AtNode *filter = AiNode("gaussian_filter");
+	AiNodeSetStr(filter, "name", "myfilter");
+
+	// We create an NtoA display driver node
+	AtNode *driver = AiNode("ntoa_drv");
+	AiNodeSetStr(driver, "name", "mydriver");
+	AiNodeSetPtr(driver, "data", &node->m_buffer);
+
+	// assign the driver and filter to the main (beauty) AOV, which is called "RGB"
+	AtArray *outputs_array = AiArrayAllocate(1, 1, AI_TYPE_STRING);
+	AiArraySetStr(outputs_array, 0, "RGBA RGBA myfilter mydriver");
+	AiNodeSetArray(options, "outputs", outputs_array);
+};
+
+void NTOA::translateSky(NTOA * node)
+{
+	if (node->m_sky_active)
+	{
+		AtNode *sky = AiNode("sky");
+		AiNodeSetStr(sky, "name", "ntoaSky");
+		AiNodeSetRGB(sky, "color", 1.0f, 1.0f, 1.0f );
+		AiNodeSetFlt(sky, "intensity", node->m_sky_intensity);
+		// Visibility options
+		int visibility = 65535;
+
+		//if (!fnDagNode.findPlug("castsShadows").asBool())
+		//   visibility &= ~AI_RAY_SHADOW;
+
+		if (!node->m_sky_visibility) visibility &= ~AI_RAY_CAMERA;
+
+		//if (!fnDagNode.findPlug("visibleInReflections").asBool())
+		//   visibility &= ~AI_RAY_REFLECTED;
+
+		//if (!fnDagNode.findPlug("visibleInRefractions").asBool())
+		//   visibility &= ~AI_RAY_REFRACTED;
+
+		/*if (customAttributes)
+		{
+		 if (!fnDagNode.findPlug("diffuse_visibility").asBool())
+			visibility &= ~AI_RAY_DIFFUSE;
+
+		 if (!fnDagNode.findPlug("glossy_visibility").asBool())
+			visibility &= ~AI_RAY_GLOSSY;
+		}*/
+
+		AiNodeSetInt(sky, "visibility", visibility);
+		AiNodeSetPtr(AiUniverseGetOptions(), "background", sky);
+	}else{
+		//AiNodeSetFlt(sky, "intensity", 0);
+		//AiNodeSetPtr(options, "background", NULL);
+	}
+};
+
+void NTOA::translateScene(NTOA * node)
+{
+	GeoOp*       tmpGeo;
+	tmpGeo = node->m_getGeo();
+	if (tmpGeo != 0)
+	{
+		// variables
+		Scene m_scene;
+		std::cout << tmpGeo->Class() << std::endl;
+		if       (strcmp(tmpGeo->Class(), "Scene") == 0)
+		{
+			// On recupere la scene
+			tmpGeo->build_scene(m_scene);
+			Scene * nodeScene = &m_scene;
+			if (nodeScene!=0)
+			{
+				nodeScene->evaluate_lights();
+				// Pour chaque LightContext
+				const unsigned n = nodeScene->lights.size();
+				for (unsigned i = 0; i < n; i++) {
+					LightContext& ltx = *(nodeScene->lights[i]);
+					//std::cout << ltx.light()->displayName() << " " << ltx.light()->matrix() <<std::endl;
+					translateLight(ltx.light());
+				}
+				// Geo???
+				GeometryList * 	m_geoList;
+				m_geoList = nodeScene->object_list();
+				//m_geoList->validate(for_real);
+				if (m_geoList!=0)
+				{
+					std::cout << "Object(s) in m_geoList : " << m_geoList->objects()<< std::endl;
+					for (unsigned i = 0; i <m_geoList->objects(); i++) {
+						// L'objet
+						GeoInfo & object =  m_geoList->object(i);
+						translateGeo(object);
+					}
+				}
+			}
+		}
+	}
 };
 
 void NTOA::translateCamera(CameraOp * nukeCamera)
@@ -91,8 +198,7 @@ void NTOA::translateCamera(CameraOp * nukeCamera)
 	AiNodeSetFlt(camera, "aperture_aspect_ratio", (float)node->m_aperture_size);
 	*/
 	// set the active camera (optional, since there is only one camera)
-	AtNode *options = AiUniverseGetOptions();
-	AiNodeSetPtr(options, "camera", camera);
+	AiNodeSetPtr(AiUniverseGetOptions(), "camera", camera);
 };
 
 void NTOA::translateLight(LightOp* nukeLight)
@@ -112,14 +218,14 @@ void NTOA::translateLight(LightOp* nukeLight)
 	// No create one
 	if (light == 0)
 	{
-		std::cout << "RENDER LOOP : Create light " << nukeLight->node_name().c_str() << std::endl;
+		std::cout << "RENDER LOOP : Create light " << nukeLight->node_name().c_str() << " * " << lightType << std::endl;
 
 		if (lightType == 0.0f)
 		{
-			light = AiNode("point_light");
+			light = AiNode("distant_light");
 		} else if (lightType == 1.0f)
 		{
-			light = AiNode("distant_light");
+			light = AiNode("point_light");
 		} else if (lightType == 2.0f)
 		{
 			light = AiNode("spot_light");
@@ -139,9 +245,9 @@ void NTOA::translateLight(LightOp* nukeLight)
 	float * m_tmpColor;
 	m_tmpColor = (float *)color.array();
 	std::cout << "Size of color " << sizeof(m_tmpColor) <<std::endl;
-	for (int ii=0;ii<sizeof(m_tmpColor);ii++){
+	/*for (int ii=0;ii<sizeof(m_tmpColor);ii++){
 		std::cout << "    - " << m_tmpColor[ii]<<std::endl;
-	}
+	}*/
 	AiNodeSetRGB(light, "color", m_tmpColor[1],m_tmpColor[2],m_tmpColor[3]);
 	AiNodeSetBool(light, "cast_shadows", nukeLight->cast_shadows());
 	AiNodeSetInt(light, "samples", nukeLight->samples());
@@ -154,125 +260,132 @@ void NTOA::translateLight(LightOp* nukeLight)
 
 void NTOA::translateGeo(GeoInfo& object)
 {
-	std::cout << " -> Start : translateGeo"<< std::endl;
 	// Le node
 	GeoOp * tmpGeoOp = object.source_geo;
-	//std::cout << "GeoInfo object name : " << tmpGeoOp->node_name()<< std::endl;
-	int nFaces = object.primitives();
-	std::vector<int> nVertIndicesPerFace;
-	std::vector<int> vertIndices;
-	std::vector<int> nNormIndicesPerFace;
-	std::vector<int> normIndices;
-	std::vector<Vector3> normVec;
-	//
-	const PointList* geoPoints = object.point_list();
-	int numPoints = geoPoints->size();
-	//
-	std::vector<Vector3> ptVec;
-	ptVec.reserve(numPoints);
-	normVec.reserve(numPoints);
-	//
-	for (int i=0;i<numPoints;i++) {
-		   const Vector3& v = (*geoPoints)[i];
-		   //Vector4 worldSpace = object.matrix*v;
-		   //ptVec.push_back( Vector3( worldSpace.x ,  worldSpace.y ,  worldSpace.z ));
-		   ptVec.push_back( v );
-	}
-	/*
-	// Normal
-    const AttribContext* N_ref = object.get_attribcontext("N");
-    const Attribute*      norm = N_ref ? N_ref->attribute : NULL;
 
-    if(!norm){
-      std::cout << "Missing \"N\" channel from geometry" << std::endl;
-      return;
-    }
-    // we have two possibility:
-    // the uv coordinate are stored in Group_Points or in Group_Vertices way
-    // the same for normal
-    GroupType n_group_type = N_ref->group;    // normal group type
-    // sanity check
-    assert(n_group_type == Group_Points || n_group_type == Group_Vertices);
-	 */
-	// On recupere les indices de face
-	for (int faceIndex = 0;faceIndex<nFaces;faceIndex++)
-	{
-		   const DD::Image::Primitive * prim =  object.primitive(faceIndex);
-		   int nVertices = prim->vertices();
-		   nVertIndicesPerFace.push_back( nVertices );
-		   for (int verticeIndex = 0 ; verticeIndex < nVertices ; verticeIndex++)
-		   {
-				   vertIndices.push_back( prim->vertex(verticeIndex)  );
-				   //normIndices.push_back( prim->vertex(verticeIndex)  );
-		   }
-	}
-	//
-	for (int faceIndex = 0;faceIndex<nFaces;faceIndex++)
-	{
-			const DD::Image::Primitive * prim =  object.primitive(faceIndex);
-		   int nVertices = prim->vertices();
-		   //nNormIndicesPerFace.push_back( nVertices );
-		   for (int verticeIndex = 0 ; verticeIndex < nVertices ; verticeIndex++)
-		   {
-				   unsigned vi = vertIndices[faceIndex];
-				   //unsigned ni = n_group_type == Group_Points ? vi : prim->vertex_offset() + faceIndex;
-			       // get vertex normal
-				   //const Vector3& n = norm->normal(ni);
-			       //normVec.push_back( n  );
-		   }
-	}
-	std::cout << "nFaces              : " << nFaces << std::endl;
-	std::cout << "nVertIndicesPerFace : " << nVertIndicesPerFace.size() << std::endl;
-	std::cout << "vertIndices         : " << vertIndices.size() << std::endl;
-	std::cout << "ptVec               : " << ptVec.size() << std::endl;
-	// create a sphere geometric primitive
-	AtNode *tmpPoly = AiNode("polymesh");
-	// Name
-	std::string nodeName = tmpGeoOp->node_name();
-	AiNodeSetStr(tmpPoly, "name", nodeName.c_str());
+	std::cout << " -> Start : translateGeo : "<< tmpGeoOp->node_name() << std::endl;
+
+	// Do we already have a node for this geo?
+	//AtNode *tmpPoly;
+	//tmpPoly = AiNodeLookUpByName(tmpGeoOp->node_name().c_str());
+	//if (tmpPoly == 0) {
+		// create a sphere geometric primitive
+		AtNode *tmpPoly = AiNode("polymesh");
+		// Name
+		std::string nodeName = tmpGeoOp->node_name();
+		AiNodeSetStr(tmpPoly, "name", nodeName.c_str());
+
+		int nFaces = object.primitives();
+		std::vector<int> nVertIndicesPerFace;
+		std::vector<int> vertIndices;
+		std::vector<int> nNormIndicesPerFace;
+		std::vector<int> normIndices;
+		std::vector<Vector3> normVec;
+		//
+		const PointList* geoPoints = object.point_list();
+		int numPoints = geoPoints->size();
+		//
+		std::vector<Vector3> ptVec;
+		ptVec.reserve(numPoints);
+		normVec.reserve(numPoints);
+		//
+		for (int i=0;i<numPoints;i++) {
+			   const Vector3& v = (*geoPoints)[i];
+			   //Vector4 worldSpace = object.matrix*v;
+			   //ptVec.push_back( Vector3( worldSpace.x ,  worldSpace.y ,  worldSpace.z ));
+			   ptVec.push_back( v );
+		}
+		/*
+		// Normal
+	    const AttribContext* N_ref = object.get_attribcontext("N");
+	    const Attribute*      norm = N_ref ? N_ref->attribute : NULL;
+
+	    if(!norm){
+	      std::cout << "Missing \"N\" channel from geometry" << std::endl;
+	      return;
+	    }
+	    // we have two possibility:
+	    // the uv coordinate are stored in Group_Points or in Group_Vertices way
+	    // the same for normal
+	    GroupType n_group_type = N_ref->group;    // normal group type
+	    // sanity check
+	    assert(n_group_type == Group_Points || n_group_type == Group_Vertices);
+		 */
+		// On recupere les indices de face
+		for (int faceIndex = 0;faceIndex<nFaces;faceIndex++)
+		{
+			   const DD::Image::Primitive * prim =  object.primitive(faceIndex);
+			   int nVertices = prim->vertices();
+			   nVertIndicesPerFace.push_back( nVertices );
+			   for (int verticeIndex = 0 ; verticeIndex < nVertices ; verticeIndex++)
+			   {
+					   vertIndices.push_back( prim->vertex(verticeIndex)  );
+					   //normIndices.push_back( prim->vertex(verticeIndex)  );
+			   }
+		}
+		//
+		for (int faceIndex = 0;faceIndex<nFaces;faceIndex++)
+		{
+				const DD::Image::Primitive * prim =  object.primitive(faceIndex);
+			   int nVertices = prim->vertices();
+			   //nNormIndicesPerFace.push_back( nVertices );
+			   for (int verticeIndex = 0 ; verticeIndex < nVertices ; verticeIndex++)
+			   {
+					   unsigned vi = vertIndices[faceIndex];
+					   //unsigned ni = n_group_type == Group_Points ? vi : prim->vertex_offset() + faceIndex;
+				       // get vertex normal
+					   //const Vector3& n = norm->normal(ni);
+				       //normVec.push_back( n  );
+			   }
+		}
+		std::cout << "nFaces              : " << nFaces << std::endl;
+		std::cout << "nVertIndicesPerFace : " << nVertIndicesPerFace.size() << std::endl;
+		std::cout << "vertIndices         : " << vertIndices.size() << std::endl;
+		std::cout << "ptVec               : " << ptVec.size() << std::endl;
+
+		// Vertex par face
+		AtArray *nsidesTmp = AiArrayAllocate((int)nVertIndicesPerFace.size(), 1,AI_TYPE_UINT);
+		for(uint i = 0; (i < nVertIndicesPerFace.size()); i++)
+			AiArraySetUInt(nsidesTmp, i, nVertIndicesPerFace[i]);
+		AiNodeSetArray(tmpPoly, "nsides", nsidesTmp);
+		// Vertex index par face
+		AtArray *vidxsTmp = AiArrayAllocate((int)vertIndices.size(), 1,AI_TYPE_UINT);
+		for(uint i = 0; (i < vertIndices.size()); i++)
+			AiArraySetUInt(vidxsTmp, i, vertIndices[i]);
+		AiNodeSetArray(tmpPoly, "vidxs", vidxsTmp);
+		AtArray *normIdxTmp = AiArrayAllocate((int)normIndices.size(), 1,AI_TYPE_UINT);
+		for(uint i = 0; (i < normIndices.size()); i++)
+			AiArraySetUInt(normIdxTmp, i, normIndices[i]);
+		AiNodeSetArray(tmpPoly, "nidxs", normIdxTmp);
+		// Vertex
+		AtArray *pntTmp = AiArrayAllocate((int)ptVec.size(), 1,AI_TYPE_POINT);
+		for(uint i = 0; (i < ptVec.size()); i++){
+			AtPoint tmpPnt = AtPoint();
+			tmpPnt.x = ptVec[i].x;
+			tmpPnt.y = ptVec[i].y;
+			tmpPnt.z = ptVec[i].z;
+			AiArraySetPnt(pntTmp, i, tmpPnt);
+		}
+		AiNodeSetArray(tmpPoly, "vlist", pntTmp);
+		/* Normal
+		AtArray *normTmp = AiArrayAllocate((int)normVec.size(), 1,AI_TYPE_VECTOR);
+		for(uint i = 0; (i < ptVec.size()); i++){
+			AtVector tmpPnt = AtVector();
+			tmpPnt.x = normVec[i].x;
+			tmpPnt.y = normVec[i].y;
+			tmpPnt.z = normVec[i].z;
+			AiArraySetVec(normTmp, i, tmpPnt);
+		}
+		AiNodeSetArray(tmpPoly, "nlist", normTmp);*/
+		// Smoothing
+		AiNodeSetBool(tmpPoly, "smoothing", true);
+	//}
 	// Transform
 	Matrix4  tmpMat = object.matrix;
 	AtMatrix mTmpMat;
 	mCpMat(tmpMat, mTmpMat);
 	AiNodeSetMatrix(tmpPoly, "matrix", mTmpMat);
-	//AiNodeSetArray(tmpPoly, "matrix", AiArrayConvert(16, 1, AI_TYPE_FLOAT, (void *)object.matrix.array(), true));
 
-	// Vertex par face
-	AtArray *nsidesTmp = AiArrayAllocate((int)nVertIndicesPerFace.size(), 1,AI_TYPE_UINT);
-	for(uint i = 0; (i < nVertIndicesPerFace.size()); i++)
-		AiArraySetUInt(nsidesTmp, i, nVertIndicesPerFace[i]);
-	AiNodeSetArray(tmpPoly, "nsides", nsidesTmp);
-	// Vertex index par face
-	AtArray *vidxsTmp = AiArrayAllocate((int)vertIndices.size(), 1,AI_TYPE_UINT);
-	for(uint i = 0; (i < vertIndices.size()); i++)
-		AiArraySetUInt(vidxsTmp, i, vertIndices[i]);
-	AiNodeSetArray(tmpPoly, "vidxs", vidxsTmp);
-	AtArray *normIdxTmp = AiArrayAllocate((int)normIndices.size(), 1,AI_TYPE_UINT);
-	for(uint i = 0; (i < normIndices.size()); i++)
-		AiArraySetUInt(normIdxTmp, i, normIndices[i]);
-	AiNodeSetArray(tmpPoly, "nidxs", normIdxTmp);
-	// Vertex
-	AtArray *pntTmp = AiArrayAllocate((int)ptVec.size(), 1,AI_TYPE_POINT);
-	for(uint i = 0; (i < ptVec.size()); i++){
-		AtPoint tmpPnt = AtPoint();
-		tmpPnt.x = ptVec[i].x;
-		tmpPnt.y = ptVec[i].y;
-		tmpPnt.z = ptVec[i].z;
-		AiArraySetPnt(pntTmp, i, tmpPnt);
-	}
-	AiNodeSetArray(tmpPoly, "vlist", pntTmp);
-	/* Normal
-	AtArray *normTmp = AiArrayAllocate((int)normVec.size(), 1,AI_TYPE_VECTOR);
-	for(uint i = 0; (i < ptVec.size()); i++){
-		AtVector tmpPnt = AtVector();
-		tmpPnt.x = normVec[i].x;
-		tmpPnt.y = normVec[i].y;
-		tmpPnt.z = normVec[i].z;
-		AiArraySetVec(normTmp, i, tmpPnt);
-	}
-	AiNodeSetArray(tmpPoly, "nlist", normTmp);*/
-	// Smoothing
-	AiNodeSetBool(tmpPoly, "smoothing", true);
 
 	// We export the shader for the geometry
 	std::cout << "GeoInfo material class : " << object.material->Class()<< std::endl;
@@ -382,185 +495,15 @@ GeoOp* NTOA::m_getGeo()
 void NTOA::mAbort()
 {
 	std::cout << "mAbort-start" << std::endl;
-	while(inRender){
-		while(AiRendering()){
-			AiRenderAbort();
-			//std::cout << "mAbort-faill" << std::endl;
-		}
-		//AiThreadWait(handler);
-		//AiThreadClose(handler);
-		AiEnd();
-		inRender = false;
+	while(AiRendering()){
+		AiRenderAbort();
 	}
-	inRender = false;
-	//std::cout << "mAbort-end" << std::endl;
+	AiEnd();
 };
 
-void NTOA::mRender(unsigned index, unsigned nthreads, void* data)
-{
-	NTOA * node = static_cast<NTOA*> (data);
-	while (!node->killthread)
-	{
-		if (!node->inRender)
-		{
-			std::cout << " -> Start : mRender"<< std::endl;
-			//node->m_buffer.init(node->formats.format()->width(),node->formats.format()->height());
-			node->inRender = true;
-			// start an Arnold session
-			AiBegin();
-			//AiLoadPlugins("/home/ndu/workspace/ntoaShadowCatcher/Debug");
-			AiNodeSetInt(AiUniverseGetOptions(), "threads", 6);
-			AiNodeSetInt(AiUniverseGetOptions(), "preserve_scene_data", true);
-			AiMsgSetLogFileName("scene1.log");
-			AiNodeEntryInstall(AI_NODE_DRIVER, AI_TYPE_RGBA, "ntoa_drv", "<built-in>", ntoa_driver_std, AI_VERSION);
-
-			// shadow catcher
-			AiNodeEntryInstall(AI_NODE_SHADER, AI_TYPE_RGBA, "fb_ShadowMtd", "<built-in>", fb_ShadowMtd, AI_VERSION);
-			AtNode *shader = AiNode("fb_ShadowMtd");
-			AiNodeSetStr(shader, "name", "shadowCatcher");
-			AiNodeSetRGBA(shader, "color", 0.0f, 0.0f, 0.0f , 1.0f);
-			AiNodeSetPtr(shader, "data", static_cast <Iop *> (node)->input(0));
-
-			// Options
-			// get the global options node and set some options
-			AtNode *options = AiUniverseGetOptions();
-			AiNodeSetInt(options, "AA_samples", node->m_aa_samples);
-			//std::cout << "Render format " << node->formats.format()->width() << std::endl;
-			AiNodeSetInt(options, "xres", node->formats.format()->width());
-			AiNodeSetInt(options, "yres", node->formats.format()->height());
-			//
-			AiNodeSetInt(options, "GI_diffuse_depth"   , node->m_diffuse_depth);
-			AiNodeSetInt(options, "GI_glossy_depth"    , node->m_glossy_depth);
-			AiNodeSetInt(options, "GI_reflection_depth", node->m_reflection_depth);
-			AiNodeSetInt(options, "GI_refraction_depth", node->m_refraction_depth);
-			AiNodeSetInt(options, "GI_total_depth"     , node->m_total_depth);
-			AiNodeSetInt(options, "GI_diffuse_samples" , node->m_diffuse_samples);
-			AiNodeSetInt(options, "GI_sss_hemi_samples", node->m_sss_hemi_samples);
-			AiNodeSetInt(options, "GI_glossy_samples"  , node->m_glossy_samples);
-
-			// For now we create a gaussian filter node
-			AtNode *filter = AiNode("gaussian_filter");
-			AiNodeSetStr(filter, "name", "myfilter");
-
-			// We create an NtoA display driver node
-			AtNode *driver = AiNode("ntoa_drv");
-			AiNodeSetStr(driver, "name", "mydriver");
-			AiNodeSetPtr(driver, "data", &node->m_buffer);
-
-			// assign the driver and filter to the main (beauty) AOV, which is called "RGB"
-			AtArray *outputs_array = AiArrayAllocate(1, 1, AI_TYPE_STRING);
-			AiArraySetStr(outputs_array, 0, "RGBA RGBA myfilter mydriver");
-			AiNodeSetArray(options, "outputs", outputs_array);
-
-			// create a perspective camera
-			translateCamera(node->m_getCam());
-
-			// Sky
-			AtNode *sky = AiNode("sky");
-			AiNodeSetStr(sky, "name", "ntoaSky");
-			AiNodeSetRGB(sky, "color", 1.0f, 1.0f, 1.0f );
-			if (node->m_sky_active)
-			{
-				AiNodeSetFlt(sky, "intensity", node->m_sky_intensity);
-				// Visibility options
-				int visibility = 65535;
-
-				//if (!fnDagNode.findPlug("castsShadows").asBool())
-				//   visibility &= ~AI_RAY_SHADOW;
-
-				if (!node->m_sky_visibility) visibility &= ~AI_RAY_CAMERA;
-
-				//if (!fnDagNode.findPlug("visibleInReflections").asBool())
-				//   visibility &= ~AI_RAY_REFLECTED;
-
-				//if (!fnDagNode.findPlug("visibleInRefractions").asBool())
-				//   visibility &= ~AI_RAY_REFRACTED;
-
-				/*if (customAttributes)
-				{
-				 if (!fnDagNode.findPlug("diffuse_visibility").asBool())
-					visibility &= ~AI_RAY_DIFFUSE;
-
-				 if (!fnDagNode.findPlug("glossy_visibility").asBool())
-					visibility &= ~AI_RAY_GLOSSY;
-				}*/
-
-				AiNodeSetInt(sky, "visibility", visibility);
-				AiNodeSetPtr(options, "background", sky);
-			}else{
-				//AiNodeSetFlt(sky, "intensity", 0);
-				//AiNodeSetPtr(options, "background", NULL);
-			}
-
-			/*if (AiASSLoad(node->m_assFile) != 0)
-			{
-				// create a sphere geometric primitive
-				AtNode *sph = AiNode("sphere");
-				AiNodeSetStr(sph, "name", "mysphere");
-				AiNodeSetFlt(sph, "radius", 5.0f);
-
-
-				// assign the sphere's shader
-				AiNodeSetPtr(sph, "shader", shader);
-
-
-			}*/
-
-			// We now process the scene graph
-			GeoOp*       tmpGeo;
-			GeoInfo      m_geoInfos;
-			//GeometryList m_geoList;
-			tmpGeo = node->m_getGeo();
-			if (tmpGeo != 0)
-			{
-				// variables
-				Scene m_scene;
-				std::cout << tmpGeo->Class() << std::endl;
-				if       (strcmp(tmpGeo->Class(), "Scene") == 0)
-				{
-					// On recupere la scene
-					tmpGeo->build_scene(m_scene);
-					Scene * nodeScene = &m_scene;
-					if (nodeScene!=0)
-					{
-						nodeScene->evaluate_lights();
-						// Pour chaque LightContext
-						const unsigned n = nodeScene->lights.size();
-						for (unsigned i = 0; i < n; i++) {
-							LightContext& ltx = *(nodeScene->lights[i]);
-							//std::cout << ltx.light()->displayName() << " " << ltx.light()->matrix() <<std::endl;
-							translateLight(ltx.light());
-						}
-						// Geo???
-						GeometryList * 	m_geoList;
-						m_geoList = nodeScene->object_list();
-						//m_geoList->validate(for_real);
-						if (m_geoList!=0)
-						{
-							std::cout << "Object(s) in m_geoList : " << m_geoList->objects()<< std::endl;
-							for (unsigned i = 0; i <m_geoList->objects(); i++) {
-								// L'objet
-								GeoInfo & object =  m_geoList->object(i);
-								translateGeo(object);
-							}
-						}
-					}
-				}
-			}
-
-			//AiASSWrite("/home/ndu/scene.ass", AI_NODE_ALL, false);
-			AiRender(AI_RENDER_MODE_CAMERA);
-			// at this point we can shut down Arnold
-			AiEnd();
-			//node->inRender = false;
-			node->flagForUpdate();
-			//std::cout << "mRender-end" << std::endl;
-		}
-	}
-};
 void NTOA::_validate(bool for_real)
 {
-	//std::cout << "+_validate" << std::endl;
+	std::cout << "+_validate" << std::endl;
 	info_.full_size_format(*formats.fullSizeFormat());
 	info_.format(*formats.format());
 	info_.channels(Mask_RGBA);
@@ -711,10 +654,48 @@ void NTOA::_validate(bool for_real)
 	{
 		scene_hash_counter = tmpScene_hash_counter;
 		//mAbort();
-		inRender = false;
 	}
 }
 
+void NTOA::_open()
+{
+	std::cout << " -> Start : _open"<< std::endl;
+	//node->inRender = true;
+	m_buffer.init(formats.format()->width(),formats.format()->height());
+	// start an Arnold session
+	AiBegin();
+	//AiLoadPlugins("/home/ndu/workspace/ntoaShadowCatcher/Debug");
+	AiNodeSetInt(AiUniverseGetOptions(), "threads", 6);
+	AiNodeSetInt(AiUniverseGetOptions(), "preserve_scene_data", true);
+	AiMsgSetLogFileName("scene1.log");
+	AiNodeEntryInstall(AI_NODE_DRIVER, AI_TYPE_RGBA, "ntoa_drv", "<built-in>", ntoa_driver_std, AI_VERSION);
+
+	// shadow catcher
+	AiNodeEntryInstall(AI_NODE_SHADER, AI_TYPE_RGBA, "fb_ShadowMtd", "<built-in>", fb_ShadowMtd, AI_VERSION);
+	AtNode *shader = AiNode("fb_ShadowMtd");
+	AiNodeSetStr(shader, "name", "shadowCatcher");
+	AiNodeSetRGBA(shader, "color", 0.0f, 0.0f, 0.0f , 1.0f);
+	AiNodeSetPtr(shader, "data", static_cast <Iop *> (this)->input(0));
+
+	// Options
+	translateOptions(this);
+
+	// Sky
+	translateSky(this);
+
+	// create a perspective camera
+	translateCamera(render_camera());
+
+	// We now process the scene graph
+	translateScene(this);
+
+	//AiASSWrite("/home/ndu/scene.ass", AI_NODE_ALL, false);
+	AiRender(AI_RENDER_MODE_CAMERA);
+	// at this point we can shut down Arnold
+	AiEnd();
+	//flagForUpdate();
+
+}
 void NTOA::engine(int y, int xx, int r, ChannelMask channels, Row& row)
 {
 	//
@@ -797,6 +778,7 @@ void NTOA::knobs(Knob_Callback f)
 	Bool_knob(f, &m_sky_visibility, "sky_visibility", "Visibility");
 	//AiNodeSetRGB(sky, "color", 1.0f, 1.0f, 1.0f );*/
 };
+
 //mAbort();
 int NTOA::knob_changed(Knob* knb)
 {
@@ -804,7 +786,7 @@ int NTOA::knob_changed(Knob* knb)
 		if       (knb->name() && strcmp(knb->name(), "format") == 0)
 		{
 			//m_mutex.lock();
-			Format & tmpFormat = (Format &)format();
+			//Format & tmpFormat = (Format &)format();
 			//m_buffer.init(tmpFormat.width(),tmpFormat.height());
 			//m_buffer.init(1920,1080);
 			//m_mutex.unlock();

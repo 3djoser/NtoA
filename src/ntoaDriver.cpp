@@ -4,9 +4,6 @@
  *  Created on: Jan 20, 2011
  *      Author: ndu
  */
-#define RESX 640
-#define RESY 480
-
 #include <time.h>
 #include <stdio.h>
 #include <vector>
@@ -151,7 +148,7 @@ driver_write_bucket
 					uint in_idx = (j-bucket_yo)*bucket_size_x + (i-bucket_xo);
 					AtRGB  rgb = ((AtRGB* )bucket_data)[in_idx];
 
-					AtRGBA* pixel = &m_buffer->get(i, (RESY-1)-j);
+					AtRGBA* pixel = &m_buffer->get(i, (s_outputDriverData.imageHeight-1)-j);
 
 					AiColorGamma(&rgb, s_outputDriverData.gamma);
 
@@ -172,7 +169,7 @@ driver_write_bucket
     			  uint in_idx = (j-bucket_yo)*bucket_size_x + (i-bucket_xo);
     			  AtRGBA  rgba = ((AtRGBA* )bucket_data)[in_idx];
 
-    			  AtRGBA* pixel = &m_buffer->get(i, (RESY-1)-j);
+    			  AtRGBA* pixel = &m_buffer->get(i, (s_outputDriverData.imageHeight-1)-j);
 
     			  AiRGBAGamma(&rgba, s_outputDriverData.gamma);
 
