@@ -20,45 +20,46 @@
 // distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. See the Apache License for the specific
 // language governing permissions and limitations.
-/*
- * cBuffer.cpp
- *
- *  Created on: Jan 20, 2011
- *      Author: ndu
- */
 
-#include "cBuffer.h"
+#ifndef NTOA_SHADOW_CATCHER_H_
+#define NTOA_SHADOW_CATCHER_H_
 
-/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
- *
- * COMMON PART
- *
- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-// cBuffer : The framebuffer for our node
-cBuffer::cBuffer() :
-	_width(0),
-	_height(0) {
-}
+#include <ai.h>
 
-void cBuffer::init(const unsigned int width, const unsigned int height) {
-	_width  = width;
-	_height = height;
-	m_mutex.lock();
-	_data.clear();
-	_data.resize(_width * _height);
-	m_mutex.unlock();
-}
+#include "DDImage/Iop.h"
+#include "DDImage/Row.h"
+#include "DDImage/Knobs.h"
+#include "DDImage/Knob.h"
+#include "DDImage/DDMath.h"
 
-AtRGBA& cBuffer::get(unsigned int x, unsigned int y) {
-	unsigned int index = (_width * y) + x;
-	return _data[index];
-}
+using namespace DD::Image;
 
-const AtRGBA& cBuffer::get(unsigned int x, unsigned int y) const {
-	unsigned int index = (_width * y) + x;
-	return _data[index];
-}
+class ntoaShadowCatcher : public DD::Image::Iop {
+public:
+	ntoaShadowCatcher(Node* node);
 
-const unsigned int cBuffer::size() const {
-	return _data.size();
-}
+	AtNode * AiExport(ntoaShadowCatcher * shaderObject);
+
+	int minimum_inputs() const;
+
+	int maximum_inputs() const;
+
+	void knobs(DD::Image::Knob_Callback f);
+
+	void _validate(bool);
+
+	void engine(int y, int xx, int r, DD::Image::ChannelMask channels, DD::Image::Row& row);
+
+	const char* ntoaShadowCatcher::Class() const { return "ntoaShadowCatcher"; }
+
+	const char* ntoaShadowCatcher::displayName() const { return "ntoaShadowCatcher"; }
+
+	const char* ntoaShadowCatcher::node_help() const { return ""; }
+
+public:
+	static const Description desc;
+	float color[4];
+	float p_diffuse_weight;
+};
+
+#endif /* NTOA_SHADOW_CATCHER_H_ */

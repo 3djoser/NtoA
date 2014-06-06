@@ -1,74 +1,378 @@
+//
+// Copyright 2014 Nicolas Dumay
+//
+// Licensed under the Apache License, Version 2.0 (the "Apache License")
+// with the following modification; you may not use this file except in
+// compliance with the Apache License and the following modification to it:
+// Section 6. Trademarks. is deleted and replaced with:
+//
+// 6. Trademarks. This License does not grant permission to use the trade
+//    names, trademarks, service marks, or product names of the Licensor
+//    and its affiliates, except as required to comply with Section 4(c) of
+//    the License and to reproduce the content of the NOTICE file.
+//
+// You may obtain a copy of the Apache License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the Apache License with the above modification is
+// distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. See the Apache License for the specific
+// language governing permissions and limitations.
+
 #include "ntoa.h"
 
-#include "ntoaStandardShader.h"
 #include "utils.h"
 
-NTOA::NTOA(Node* node) : RenderScene(node)
-{
-	//position 					= 0;
-	speed 						= 1.0;
-	doAbort 					= false;
-	//
+NTOA::NTOA(Node* node) : RenderScene(node) {
+	// BUFFER INIT
 	m_buffer.m_node  			= this;
-	//
-	//Format & tmpFormat = (Format &)format();
-	//AiNodeSetInt(options, "xres", node->formats.format()->width());
-	//AiNodeSetInt(options, "yres", node->formats.format()->height());
-
-	//m_buffer.init(tmpFormat.width(), tmpFormat.height());
 	m_buffer.init(formats.format()->width(),formats.format()->height());
+	inRender                    = false;
 	//
 	/*
 	 *  Arnold params
 	 */
-	m_aa_samples 				= 0;
-	m_diffuse_depth 			= 1;
-	m_glossy_depth 				= 1;
-	m_reflection_depth 			= 1;
-	m_refraction_depth 			= 1;
-	m_total_depth 				= 6;
-	m_diffuse_samples 			= 1;
-	m_sss_hemi_samples 			= 1;
-	m_glossy_samples 			= 1;
+	// Sampling
+	m_AA_samples                        = 1;
+	m_GI_diffuse_samples                = 2;
+	m_GI_glossy_samples                 = 2;
+	m_GI_refraction_samples             = 2;
+	m_GI_single_scatter_samples         = 5;
+	m_sss_bssrdf_samples                = 0;
+	m_volume_indirect_samples           = 0;
+	// Clamping
+	m_AA_sample_clamp_affects_aovs      = false;
+	m_AA_sample_clamp                   = 10.0f;
+	// Filter
+	// Ray depth
+	m_GI_total_depth                    = 10;
+	m_GI_diffuse_depth                  = 1;
+	m_GI_glossy_depth                   = 1;
+	m_GI_reflection_depth               = 2;
+	m_GI_refraction_depth               = 2;
+	m_auto_transparency_depth           = 10;
+	m_auto_transparency_threshold       = 0.99f;
+	// Motion Blur
+	m_ignore_motion_blur                = false;
+	m_curved_motionblur                 = true;
+	// Lights
+	m_low_light_threshold               = 0.001f;
+	// Textures
+	m_texture_automip                   = true;
+	m_texture_accept_unmipped           = true;
+	m_texture_autotile                  = 64;
+	m_texture_accept_untiled            = true;
+	m_texture_max_memory_MB             = 1024;
+	m_texture_max_open_files            = 512;
+	m_texture_glossy_blur               = 0.015625f;
+	m_texture_diffuse_blur              = 0.03125f;
+	m_texture_sss_blur                  = 0.0078125f;
+	m_texture_max_sharpen               = 1.5f;
+	// Gamma correction
+	m_light_gamma                       = 1.0f;
+	m_shader_gamma                      = 1.0f;
+	m_texture_gamma                     = 1.0f;
+	// Render settings
+//	ENUM          bucket_scanning                   = top
+	m_bucket_size                       = 64;
+	m_threads                           = 0;
+	m_procedural_force_expand           = false;
+	m_region_min_x                      = -1;
+	m_region_min_y                      = -1;
+	m_region_max_x                      = -1;
+	m_region_max_y                      = -1;
+	m_aspect_ratio                      = 1.0f;
+	m_shadows_obey_light_linking        = false;
+	m_enable_aov_composition            = false;
+	// Search Paths
+//	STRING        procedural_searchpath             = "";
+//	STRING        shader_searchpath                 = "";
+//	STRING        texture_searchpath                = "";
+	// Licensing
+	m_abort_on_license_fail             = false;
+	m_skip_license_check                = false;
+	// Diagnostics
+	m_shader_nan_checks                 = false;
+	m_abort_on_error                    = true;
+
+
+	// Sampling
+	m_volume_indirect_samples	= 1;
+	m_lock_sampling_pattern		= false;
+	// Clamping
+	m_clamping_sample_value 	= false;
+	// Filter
+	m_filter_width				= 2.0f;
 	// CAMERA
 	m_cam_dof 					= false;
-	m_focal_distance 			= 1.0;
-	m_aperture_size 		   	= 0.0;
+	m_focal_distance 			= 1.0f;
+	m_aperture_size 		   	= 0.0f;
 	m_aperture_blades 		   	= 6;
 	m_aperture_rotation 	   	= 0.0f;
 	m_aperture_blade_curvature 	= 1.0f;
 	m_aperture_aspect_ratio    	= 1.0f;
 	// SKY
 	m_sky_active     		   	= false;
-    //m_sky_color      			= {1.0f, 1.0f, 1.0f };
+    m_sky_color[0] = m_sky_color[1] = m_sky_color[2] = 1.0f;
 	m_sky_intensity  		   	= 1.0f;
+	m_sky_castsShadows 		   	= false;
 	m_sky_visibility 		   	= false;
-};
+	m_sky_visibleInReflections 	= false;
+	m_sky_visibleInRefractions 	= false;
+	m_sky_diffuse_visibility 	= false;
+	m_sky_glossy_visibility 	= false;
+}
 
-// Destroying the Op should get rid of the parallel threads.
-// Unfortunatly currently Nuke does not destroy one of the Ops on a
-// deleted node, as it is saving it for Undo. This bug will be fixed
-// in an upcoming version, so you should implement this:
-NTOA::~NTOA()
-{
-};
+NTOA::~NTOA() {
+}
 
-void NTOA::translateOptions(NTOA * node)
-{
-	std::cout << " -> translate Options : " << node->formats.format()->width() << std::endl;
-	AtNode *options = AiUniverseGetOptions();
-	AiNodeSetInt(options, "xres", node->formats.format()->width());
-	AiNodeSetInt(options, "yres", node->formats.format()->height());
+void NTOA::knobs(Knob_Callback f) {
+	// SAMPLING
+	BeginClosedGroup(f, "Sampling");
+		Int_knob(f, &m_AA_samples, "m_AA_samples", "Camera (AA)");
+		Int_knob(f, &m_GI_diffuse_samples, "m_GI_diffuse_samples", "Diffuse");
+		Int_knob(f, &m_GI_glossy_samples, "m_GI_glossy_samples", "Glossy");
+		Int_knob(f, &m_GI_refraction_samples, "m_GI_refraction_samples", "Refraction");
+		Int_knob(f, &m_GI_single_scatter_samples, "m_GI_single_scatter_samples", "Single Scatter");
+		Int_knob(f, &m_sss_bssrdf_samples, "m_sss_bssrdf_samples", "SSS");
+		Int_knob(f, &m_volume_indirect_samples, "m_volume_indirect_samples", "Volume Indirect");
+		//Bool_knob(f, &m_lock_sampling_pattern, "m_lock_sampling_pattern", "Lock Sampling Pattern");
+		//SetFlags(f, DD::Image::Knob::STARTLINE);
+		BeginClosedGroup(f, "Clamping");
+			Bool_knob(f, &m_AA_sample_clamp_affects_aovs, "m_AA_sample_clamp_affects_aovs", "Clamp Sample Values");
+			SetFlags(f, DD::Image::Knob::STARTLINE);
+			Bool_knob(f, &m_AA_sample_clamp_affects_aovs, "m_AA_sample_clamp_affects_aovs", "Affect AOV's");
+			SetFlags(f, DD::Image::Knob::STARTLINE);
+			Float_knob(f, &m_AA_sample_clamp, "m_AA_sample_clamp", "Max Value");
+		EndGroup(f);
+		BeginClosedGroup(f, "Filter");
+			Float_knob(f, &m_filter_width, "m_filter_width", "Width");
+		EndGroup(f);
+	EndGroup(f);
+	Divider(f, "");
+	// RAY DEPTH
+	BeginClosedGroup(f, "Ray Depth");
+		Int_knob(f, &m_GI_total_depth, "m_GI_total_depth", "Total");
+		Int_knob(f, &m_GI_diffuse_depth, "m_GI_diffuse_depth", "Diffuse");
+		Int_knob(f, &m_GI_glossy_depth, "m_GI_glossy_depth", "Glossy");
+		Int_knob(f, &m_GI_reflection_depth, "m_GI_reflection_depth", "Reflection");
+		Int_knob(f, &m_GI_refraction_depth, "m_GI_refraction_depth", "Refraction");
+		Int_knob(f, &m_auto_transparency_depth, "m_auto_transparency_depth", "Transparency Depth");
+		Float_knob(f, &m_auto_transparency_threshold, "m_auto_transparency_threshold", "Transparency Threshold");
+	EndGroup(f);
+	Divider(f, "");
+	// ENVIRONMENT
+	BeginClosedGroup(f, "Environment");
+		BeginClosedGroup(f, "Sky");
+			Bool_knob(f, &m_sky_active, "sky_active", "Active");
+			Color_knob(f, (float*)&m_sky_color, "sky_color", "Color");
+			SetFlags(f, DD::Image::Knob::STARTLINE);
+			Float_knob(f, &m_sky_intensity, "sky_intensity", "Intensity");
+			Bool_knob(f, &m_sky_castsShadows, "sky_castsShadows", "Casts shadows");
+			SetFlags(f, DD::Image::Knob::STARTLINE);
+			Bool_knob(f, &m_sky_visibility, "sky_visibility", "Visibility");
+			Bool_knob(f, &m_sky_visibleInReflections, "visibleInReflections", "Visible in reflections");
+			SetFlags(f, DD::Image::Knob::STARTLINE);
+			Bool_knob(f, &m_sky_visibleInRefractions, "visibleInRefractions", "Visible in refractions");
+			Bool_knob(f, &m_sky_diffuse_visibility, "diffuse_visibility", "Diffuse visibility");
+			SetFlags(f, DD::Image::Knob::STARTLINE);
+			Bool_knob(f, &m_sky_glossy_visibility, "glossy_visibility", "Glossy visibility");
+		EndGroup(f);
+	EndGroup(f);
+	Divider(f, "");
+	// MOTION BLUR
+	BeginClosedGroup(f, "Motion Blur");
+//		Bool_knob(f, &m_ignore_motion_blur, "m_ignore_motion_blur", "");
+//		Bool_knob(f, &m_curved_motionblur, "m_curved_motionblur", "");
+	EndGroup(f);
+	Divider(f, "");
+	// SSS
+	BeginClosedGroup(f, "SSS");
+	EndGroup(f);
+	Divider(f, "");
+	// LIGHTS
+	BeginClosedGroup(f, "Lights");
+		Float_knob(f, &m_low_light_threshold, "m_low_light_threshold", "Low Light Threshold");
+	EndGroup(f);
+	Divider(f, "");
+	// TEXTURES
+	BeginClosedGroup(f, "Textures");
+		Bool_knob(f, &m_texture_automip, "m_texture_automip", "Texture Automip");
+		//Bool_knob(f, &m_texture_accept_unmipped, "m_texture_accept_unmipped", "Texture Accept Unmipped");
+		SetFlags(f, DD::Image::Knob::STARTLINE);
+		Int_knob(f, &m_texture_autotile, "m_texture_autotile", "Texture Autotile");
+		SetFlags(f, DD::Image::Knob::STARTLINE);
+		Bool_knob(f, &m_texture_accept_untiled, "m_texture_accept_untiled", "Texture Accept Untiled");
+		SetFlags(f, DD::Image::Knob::STARTLINE);
+		Float_knob(f, &m_texture_max_memory_MB, "m_texture_max_memory_MB", "Texture Max Memory (MB)");
+		SetFlags(f, DD::Image::Knob::STARTLINE);
+		Int_knob(f, &m_texture_max_open_files, "m_texture_max_open_files", "Texture Max Open Files");
+		Float_knob(f, &m_texture_glossy_blur, "m_texture_glossy_blur", "Texture Glossy Blur");
+		Float_knob(f, &m_texture_diffuse_blur, "m_texture_diffuse_blur", "Texture Diffuse Blur");
+		Float_knob(f, &m_texture_sss_blur, "m_texture_sss_blur", "Texture SSS Blur");
+		Float_knob(f, &m_texture_max_sharpen, "m_texture_max_sharpen", "Texture Max Sharpen");
+	EndGroup(f);
+	Divider(f, "");
+	// GAMMA CORRECTION
+	BeginClosedGroup(f, "Gamma Correction");
+		Float_knob(f, &m_light_gamma, "m_light_gamma", "Light");
+		Float_knob(f, &m_shader_gamma, "m_shader_gamma", "Shader");
+		Float_knob(f, &m_texture_gamma, "m_texture_gamma", "Texture");
+	EndGroup(f);
+	Divider(f, "");
+	// SYSTEM
+	BeginClosedGroup(f, "System");
+		// RENDER SETTINGS
+		BeginClosedGroup(f, "Render Settings");
+			Format_knob(f, &formats, "format");
+			Float_knob(f, &m_aspect_ratio, "m_aspect_ratio", "Aspect Ratio");
+			//ENUM          bucket_scanning, "", "");
+			Int_knob(f, &m_bucket_size, "m_bucket_size", "Bucket Size");
+			Int_knob(f, &m_threads, "m_threads", "Threads");
+			Bool_knob(f, &m_procedural_force_expand, "m_procedural_force_expand", "Force Procedural Expand");
+			SetFlags(f, DD::Image::Knob::STARTLINE);
+			//Bool_knob(f, &m_shadows_obey_light_linking, "m_shadows_obey_light_linking", "Shadows_obey_light_linking");
+			//SetFlags(f, DD::Image::Knob::STARTLINE);
+			Bool_knob(f, &m_enable_aov_composition, "m_enable_aov_composition", "Enable AOV Composition");
+			SetFlags(f, DD::Image::Knob::STARTLINE);
+		EndGroup(f);
+		// SEARCH PATHS
+		BeginClosedGroup(f, "Search Paths");
+			//STRING        procedural_searchpath, "", "");
+			//STRING        shader_searchpath, "", "");
+			//STRING        texture_searchpath, "", "");
+		EndGroup(f);
+		// LICENSING
+		BeginClosedGroup(f, "Licensing");
+			Bool_knob(f, &m_abort_on_license_fail, "m_abort_on_license_fail", "Abort On License Fail");
+			Bool_knob(f, &m_skip_license_check, "m_skip_license_check", "Skip License Check");
+			SetFlags(f, DD::Image::Knob::STARTLINE);
+		EndGroup(f);
+		// DIAGNOSTICS
+		BeginClosedGroup(f, "Diagnostics");
+			Bool_knob(f, &m_shader_nan_checks, "m_shader_nan_checks", "Shader Nan Checks");
+			Bool_knob(f, &m_abort_on_error, "m_abort_on_error", "Abort On Error");
+			SetFlags(f, DD::Image::Knob::STARTLINE);
+		EndGroup(f);
+	EndGroup(f);
+
 	//
-	AiNodeSetInt(options, "AA_samples", node->m_aa_samples);
-	AiNodeSetInt(options, "GI_diffuse_depth"   , node->m_diffuse_depth);
-	AiNodeSetInt(options, "GI_glossy_depth"    , node->m_glossy_depth);
-	AiNodeSetInt(options, "GI_reflection_depth", node->m_reflection_depth);
-	AiNodeSetInt(options, "GI_refraction_depth", node->m_refraction_depth);
-	AiNodeSetInt(options, "GI_total_depth"     , node->m_total_depth);
-	AiNodeSetInt(options, "GI_diffuse_samples" , node->m_diffuse_samples);
-	AiNodeSetInt(options, "GI_sss_hemi_samples", node->m_sss_hemi_samples);
-	AiNodeSetInt(options, "GI_glossy_samples"  , node->m_glossy_samples);
+	//File_knob(f, &m_assFile, "ass_file", "Ass file");
+	// Camera
+	Tab_knob(f, "Camera");
+	Bool_knob(f, &m_cam_dof, "cam_dof", "Camera DOF");
+	Float_knob(f, &m_focal_distance, "focal_distance", "Camera focal distance");
+	Float_knob(f, &m_aperture_size, "aperture_size", "Camera aperture size");
+	Int_knob(f, &m_aperture_blades, "aperture_blades", "Camera aperture blades");
+	Float_knob(f, &m_aperture_rotation, "aperture_rotation", "Camera aperture rotation");
+	Float_knob(f, &m_aperture_blade_curvature, "aperture_blade_curvature", "Camera aperture blade curvature");
+	Float_knob(f, &m_aperture_aspect_ratio, "aperture_aspect_ratio", "Camera aperture aspect ratio");
+}
+
+int NTOA::knob_changed(Knob* knb) {
+	if (knb != NULL) {
+		stopArnold();
+		return 1;
+	}
+	return 0;
+}
+
+void NTOA::startArnold() {
+	stopArnold();
+	// start an Arnold session
+	AiBegin();
+	inRender = true;
+	AiNodeSetInt(AiUniverseGetOptions(), "threads", 6);
+	AiNodeSetInt(AiUniverseGetOptions(), "preserve_scene_data", true);
+	AiMsgSetLogFileName("ntoa.log");
+	AiNodeEntryInstall(AI_NODE_DRIVER, AI_TYPE_RGBA, "ntoa_drv", "<built-in>", ntoa_driver_std, AI_VERSION);
+
+	// shadow catcher
+	AiNodeEntryInstall(AI_NODE_SHADER, AI_TYPE_RGBA, "fb_ShadowMtd", "<built-in>", fb_ShadowMtd, AI_VERSION);
+}
+
+void NTOA::stopArnold() {
+	if (inRender) {
+		std::cout << "Arnold stop requested" << std::endl;
+		while(AiRendering()) {
+			AiRenderAbort();
+		}
+		AiEnd();
+		inRender = false;
+		std::cout << "Arnold stopped!" << std::endl;
+	}
+}
+
+void NTOA::translateOptions() {
+	std::cout << " -> translate Options : " << std::endl;
+	AtNode *options = AiUniverseGetOptions();
+	//
+	AiNodeSetInt(options, "xres", formats.format()->width());
+	AiNodeSetInt(options, "yres", formats.format()->height());
+	// Sampling
+    AiNodeSetInt(options, "AA_samples", m_AA_samples );
+    AiNodeSetInt(options, "GI_diffuse_samples", m_GI_diffuse_samples );
+    AiNodeSetInt(options, "GI_glossy_samples", m_GI_glossy_samples );
+    AiNodeSetInt(options, "GI_refraction_samples", m_GI_refraction_samples );
+    AiNodeSetInt(options, "GI_single_scatter_samples", m_GI_single_scatter_samples );
+    AiNodeSetInt(options, "sss_bssrdf_samples", m_sss_bssrdf_samples );
+    AiNodeSetInt(options, "volume_indirect_samples", m_volume_indirect_samples );
+    // Clamping
+    AiNodeSetBool(options, "AA_sample_clamp_affects_aovs", m_AA_sample_clamp_affects_aovs );
+    AiNodeSetFlt(options, "AA_sample_clamp", m_AA_sample_clamp );
+    // Filter
+    // Ray depth
+    AiNodeSetInt(options, "GI_total_depth", m_GI_total_depth );
+    AiNodeSetInt(options, "GI_diffuse_depth", m_GI_diffuse_depth );
+    AiNodeSetInt(options, "GI_glossy_depth", m_GI_glossy_depth );
+    AiNodeSetInt(options, "GI_reflection_depth", m_GI_reflection_depth );
+    AiNodeSetInt(options, "GI_refraction_depth", m_GI_refraction_depth );
+    AiNodeSetInt(options, "auto_transparency_depth", m_auto_transparency_depth );
+    AiNodeSetFlt(options, "auto_transparency_threshold", m_auto_transparency_threshold );
+    // Motion Blur
+    AiNodeSetBool(options, "ignore_motion_blur", m_ignore_motion_blur );
+    AiNodeSetBool(options, "curved_motionblur", m_curved_motionblur );
+    // Lights
+    AiNodeSetFlt(options, "low_light_threshold", m_low_light_threshold );
+    // Textures
+    AiNodeSetBool(options, "texture_automip", m_texture_automip );
+    AiNodeSetBool(options, "texture_accept_unmipped", m_texture_accept_unmipped );
+    AiNodeSetInt(options, "texture_autotile", m_texture_autotile );
+    AiNodeSetBool(options, "texture_accept_untiled", m_texture_accept_untiled );
+    AiNodeSetFlt(options, "texture_max_memory_MB", m_texture_max_memory_MB );
+    AiNodeSetInt(options, "texture_max_open_files", m_texture_max_open_files );
+    AiNodeSetFlt(options, "texture_glossy_blur", m_texture_glossy_blur );
+    AiNodeSetFlt(options, "texture_diffuse_blur", m_texture_diffuse_blur );
+    AiNodeSetFlt(options, "texture_sss_blur", m_texture_sss_blur );
+    AiNodeSetFlt(options, "texture_max_sharpen", m_texture_max_sharpen );
+    // Gamma correction
+    AiNodeSetFlt(options, "light_gamma", m_light_gamma );
+    AiNodeSetFlt(options, "shader_gamma", m_shader_gamma );
+    AiNodeSetFlt(options, "texture_gamma", m_texture_gamma );
+    // Render settings
+//  ENUM          bucket_scanning", m_bucket_scanning );
+    AiNodeSetInt(options, "bucket_size", m_bucket_size );
+    AiNodeSetInt(options, "threads", m_threads );
+    AiNodeSetBool(options, "procedural_force_expand", m_procedural_force_expand );
+    AiNodeSetInt(options, "region_min_x", m_region_min_x );
+    AiNodeSetInt(options, "region_min_y", m_region_min_y );
+    AiNodeSetInt(options, "region_max_x", m_region_max_x );
+    AiNodeSetInt(options, "region_max_y", m_region_max_y );
+    AiNodeSetFlt(options, "aspect_ratio", m_aspect_ratio );
+    AiNodeSetBool(options, "shadows_obey_light_linking", m_shadows_obey_light_linking );
+    AiNodeSetBool(options, "enable_aov_composition", m_enable_aov_composition );
+    // Search Paths
+//  STRING        procedural_searchpath", m_procedural_searchpath );
+//  STRING        shader_searchpath", m_shader_searchpath );
+//  STRING        texture_searchpath", m_texture_searchpath );
+    // Licensing
+    AiNodeSetBool(options, "abort_on_license_fail", m_abort_on_license_fail );
+    AiNodeSetBool(options, "skip_license_check", m_skip_license_check );
+    // Diagnostics
+    AiNodeSetBool(options, "shader_nan_checks", m_shader_nan_checks );
+    AiNodeSetBool(options, "abort_on_error", m_abort_on_error );
 
 	// For now we create a gaussian filter node
 	AtNode *filter = AiNode("gaussian_filter");
@@ -77,86 +381,75 @@ void NTOA::translateOptions(NTOA * node)
 	// We create an NtoA display driver node
 	AtNode *driver = AiNode("ntoa_drv");
 	AiNodeSetStr(driver, "name", "mydriver");
-	AiNodeSetPtr(driver, "data", &node->m_buffer);
+	AiNodeSetPtr(driver, "data", &m_buffer);
 
 	// assign the driver and filter to the main (beauty) AOV, which is called "RGB"
 	AtArray *outputs_array = AiArrayAllocate(1, 1, AI_TYPE_STRING);
 	AiArraySetStr(outputs_array, 0, "RGBA RGBA myfilter mydriver");
 	AiNodeSetArray(options, "outputs", outputs_array);
-};
+}
 
-void NTOA::translateSky(NTOA * node)
-{
-	if (node->m_sky_active)
-	{
+void NTOA::translateSky() {
+	if (m_sky_active) {
 		AtNode *sky = AiNode("sky");
 		AiNodeSetStr(sky, "name", "ntoaSky");
-		AiNodeSetRGB(sky, "color", 1.0f, 1.0f, 1.0f );
-		AiNodeSetFlt(sky, "intensity", node->m_sky_intensity);
+		AiNodeSetRGB(sky, "color",m_sky_color[0], m_sky_color[1], m_sky_color[2]);
+
+		AiNodeSetFlt(sky, "intensity", m_sky_intensity);
 		// Visibility options
 		int visibility = 65535;
 
-		//if (!fnDagNode.findPlug("castsShadows").asBool())
-		//   visibility &= ~AI_RAY_SHADOW;
+		if (!m_sky_castsShadows) visibility &= ~AI_RAY_SHADOW;
 
-		if (!node->m_sky_visibility) visibility &= ~AI_RAY_CAMERA;
+		if (!m_sky_visibility) visibility &= ~AI_RAY_CAMERA;
 
-		//if (!fnDagNode.findPlug("visibleInReflections").asBool())
-		//   visibility &= ~AI_RAY_REFLECTED;
+		if (!m_sky_visibleInReflections) visibility &= ~AI_RAY_REFLECTED;
 
-		//if (!fnDagNode.findPlug("visibleInRefractions").asBool())
-		//   visibility &= ~AI_RAY_REFRACTED;
+		if (!m_sky_visibleInRefractions) visibility &= ~AI_RAY_REFRACTED;
 
-		/*if (customAttributes)
-		{
-		 if (!fnDagNode.findPlug("diffuse_visibility").asBool())
-			visibility &= ~AI_RAY_DIFFUSE;
+		if (!m_sky_diffuse_visibility) visibility &= ~AI_RAY_DIFFUSE;
 
-		 if (!fnDagNode.findPlug("glossy_visibility").asBool())
-			visibility &= ~AI_RAY_GLOSSY;
-		}*/
+		if (!m_sky_glossy_visibility) visibility &= ~AI_RAY_GLOSSY;
 
 		AiNodeSetInt(sky, "visibility", visibility);
 		AiNodeSetPtr(AiUniverseGetOptions(), "background", sky);
-	}else{
-		//AiNodeSetFlt(sky, "intensity", 0);
-		//AiNodeSetPtr(options, "background", NULL);
 	}
-};
+}
 
-void NTOA::translateScene(NTOA * node)
-{
+void NTOA::translateScene() {
+	std::cout << " -> Start : translateScene"<< std::endl;
+	// Options
+	translateOptions();
+
+	// Sky
+	translateSky();
+
+	// Camera
+	translateCamera(render_camera());
+
+	// Now we process the geometry
 	GeoOp*       tmpGeo;
-	tmpGeo = node->m_getGeo();
-	if (tmpGeo != 0)
-	{
-		// variables
-		Scene m_scene;
-		std::cout << tmpGeo->Class() << std::endl;
-		if       (strcmp(tmpGeo->Class(), "Scene") == 0)
-		{
-			// On recupere la scene
+	tmpGeo = render_geo();
+	if (tmpGeo != 0) {
+		if (strcmp(tmpGeo->Class(), "Scene") == 0) {
+			// We get the 3d scene
+			Scene m_scene;
 			tmpGeo->build_scene(m_scene);
 			Scene * nodeScene = &m_scene;
-			if (nodeScene!=0)
-			{
+			if (nodeScene!=0) {
+				// LIGHTS
 				nodeScene->evaluate_lights();
-				// Pour chaque LightContext
 				const unsigned n = nodeScene->lights.size();
 				for (unsigned i = 0; i < n; i++) {
 					LightContext& ltx = *(nodeScene->lights[i]);
-					//std::cout << ltx.light()->displayName() << " " << ltx.light()->matrix() <<std::endl;
 					translateLight(ltx.light());
 				}
-				// Geo???
+				// GEOMETRY
 				GeometryList * 	m_geoList;
 				m_geoList = nodeScene->object_list();
-				//m_geoList->validate(for_real);
-				if (m_geoList!=0)
-				{
-					std::cout << "Object(s) in m_geoList : " << m_geoList->objects()<< std::endl;
+				if (m_geoList!=0) {
+					std::cout << "Object(s) to export : " << m_geoList->objects()<< std::endl;
 					for (unsigned i = 0; i <m_geoList->objects(); i++) {
-						// L'objet
 						GeoInfo & object =  m_geoList->object(i);
 						translateGeo(object);
 					}
@@ -164,18 +457,17 @@ void NTOA::translateScene(NTOA * node)
 			}
 		}
 	}
-};
+}
 
-void NTOA::translateCamera(CameraOp * nukeCamera)
-{
+void NTOA::translateCamera(CameraOp * nukeCamera) {
 	std::cout << " -> Start : translateCamera"<< std::endl;
-	/* We create a pointer for an Arnold perspective camera
+	// We create a pointer for an Arnold perspective camera
 	AtNode *camera;
 	// Do we already have a node for this camera?
 	camera = AiNodeLookUpByName("ntoaCamera");
-	if (camera = 0) camera = AiNode("persp_camera");*/
+	if (camera == 0) camera = AiNode("persp_camera");
 
-	AtNode *camera = AiNode("persp_camera");
+	//AtNode *camera = AiNode("persp_camera");
 	AiNodeSetStr(camera, "name", "ntoaCamera");
 	AiNodeSetFlt(camera, "fov", (float)nukeCamera->focal_length());
 	// position the camera (alternatively you can set 'matrix')
@@ -183,26 +475,23 @@ void NTOA::translateCamera(CameraOp * nukeCamera)
 	AtMatrix mTmpMat;
 	mCpMat(tmpMat, mTmpMat);
 	AiNodeSetMatrix(camera, "matrix", mTmpMat);
-	/*
-	if (node->m_cam_dof)
-	{
-		AiNodeSetFlt(camera, "focal_distance", (float)node->m_focal_distance);
-		AiNodeSetFlt(camera, "aperture_size", (float)node->m_aperture_size);
-	}else{
-		AiNodeSetFlt(camera, "focal_distance", 1);
+
+	if (m_cam_dof) {
+		AiNodeSetFlt(camera, "focal_distance", (float)m_focal_distance);
+		AiNodeSetFlt(camera, "aperture_size", (float)m_aperture_size);
+		AiNodeSetInt(camera, "aperture_blades", (int)m_aperture_blades);
+		AiNodeSetFlt(camera, "aperture_rotation", (float)m_aperture_size);
+		AiNodeSetFlt(camera, "aperture_blade_curvature", (float)m_aperture_size);
+		AiNodeSetFlt(camera, "aperture_aspect_ratio", (float)m_aperture_size);
+	} else {
 		AiNodeSetFlt(camera, "aperture_size", 0);
 	}
-	AiNodeSetInt(camera, "aperture_blades", (int)node->m_aperture_blades);
-	AiNodeSetFlt(camera, "aperture_rotation", (float)node->m_aperture_size);
-	AiNodeSetFlt(camera, "aperture_blade_curvature", (float)node->m_aperture_size);
-	AiNodeSetFlt(camera, "aperture_aspect_ratio", (float)node->m_aperture_size);
-	*/
+
 	// set the active camera (optional, since there is only one camera)
 	AiNodeSetPtr(AiUniverseGetOptions(), "camera", camera);
-};
+}
 
-void NTOA::translateLight(LightOp* nukeLight)
-{
+void NTOA::translateLight(LightOp* nukeLight) {
 	std::cout << " -> Start : translateLight"<< std::endl;
 	std::cout << nukeLight->Class() << std::endl;
 	// create a point light source
@@ -210,44 +499,21 @@ void NTOA::translateLight(LightOp* nukeLight)
 	// Do we already have a node for this light?
 	light =	AiNodeLookUpByName(nukeLight->node_name().c_str());
 
-	double lightType = 0.f;
-
-	DD::Image::Knob* pType = nukeLight->knob("light_type");
-	if (pType)
-		lightType = pType->get_value(0);
-	/* No create one
-	if (light == 0)
-	{
-		std::cout << "RENDER LOOP : Create light " << nukeLight->node_name().c_str() << " * " << lightType << std::endl;
-
-		if (lightType == 0.0f)
-		{
-			light = AiNode("distant_light");
-		} else if (lightType == 1.0f)
-		{
-			light = AiNode("point_light");
-		} else if (lightType == 2.0f)
-		{
-			light = AiNode("spot_light");
-		}
-	}*/
 	// No create one
-	if (light == 0)
-	{
+	if (light == 0) {
 		std::cout << "RENDER LOOP : Create light " << nukeLight->node_name().c_str() << std::endl;
-		if       (strcmp(nukeLight->Class(), "Light") == 0)
-		{
+		if       (strcmp(nukeLight->Class(), "Light") == 0) {
 			light = AiNode("point_light");
-		} else if (strcmp(nukeLight->Class(), "DirectLight") == 0)
-		{
+
+		} else if (strcmp(nukeLight->Class(), "DirectLight") == 0) {
 			light = AiNode("distant_light");
-		} else if (strcmp(nukeLight->Class(), "Spotlight") == 0)
-		{
+
+		} else if (strcmp(nukeLight->Class(), "Spotlight") == 0) {
 			light = AiNode("spot_light");
+
 		}
 	}
 	AiNodeSetStr(light, "name", nukeLight->node_name().c_str());
-	//AiNodeSetArray(camera, "matrix", AiArrayConvert(16, 1, AI_TYPE_FLOAT, (void *)node->m_getCam()->matrix().array(), true));
 	Matrix4  tmpMat = nukeLight->matrix();
 	AtMatrix mTmpMat;
 	mCpMat(tmpMat, mTmpMat);
@@ -256,7 +522,6 @@ void NTOA::translateLight(LightOp* nukeLight)
 	AiNodeSetFlt(light, "intensity", 1);
 	AiNodeSetFlt(light, "exposure", (float)nukeLight->intensity());
 	Pixel & 	color = (Pixel &)nukeLight->color();
-	//ChannelSet 	mChannels = color.channels;
 	float * m_tmpColor;
 	m_tmpColor = (float *)color.array();
 	std::cout << "Size of color " << sizeof(m_tmpColor) <<std::endl;
@@ -266,24 +531,23 @@ void NTOA::translateLight(LightOp* nukeLight)
 	AiNodeSetRGB(light, "color", m_tmpColor[1],m_tmpColor[2],m_tmpColor[3]);
 	AiNodeSetBool(light, "cast_shadows", nukeLight->cast_shadows());
 	AiNodeSetInt(light, "samples", nukeLight->samples());
-	AiNodeSetFlt(light, "radius", nukeLight->sample_width());
+	if (strcmp(nukeLight->Class(), "DirectLight") == 0) {
+		AiNodeSetFlt(light, "angle", nukeLight->sample_width());
+	} else {
+		AiNodeSetFlt(light, "radius", nukeLight->sample_width());
+	}
+}
 
-    /*float * m_tmpColor;
-    m_tmpColor = (float *)color.array();
-    */
-};
-
-void NTOA::translateGeo(GeoInfo& object)
-{
+void NTOA::translateGeo(GeoInfo& object) {
 	// Le node
 	GeoOp * tmpGeoOp = object.source_geo;
 
 	std::cout << " -> Start : translateGeo : "<< tmpGeoOp->node_name() << std::endl;
 
-	// Do we already have a node for this geo?
-	//AtNode *tmpPoly;
-	//tmpPoly = AiNodeLookUpByName(tmpGeoOp->node_name().c_str());
-	//if (tmpPoly == 0) {
+	/* Do we already have a node for this geo?
+	AtNode *tmpPoly;
+	tmpPoly = AiNodeLookUpByName(tmpGeoOp->node_name().c_str());
+	if (tmpPoly == 0) {*/
 		// create a sphere geometric primitive
 		AtNode *tmpPoly = AiNode("polymesh");
 		// Name
@@ -339,13 +603,11 @@ void NTOA::translateGeo(GeoInfo& object)
 			   }
 		}
 		//
-		for (int faceIndex = 0;faceIndex<nFaces;faceIndex++)
-		{
+		for (int faceIndex = 0;faceIndex<nFaces;faceIndex++) {
 				const DD::Image::Primitive * prim =  object.primitive(faceIndex);
 			   int nVertices = prim->vertices();
 			   //nNormIndicesPerFace.push_back( nVertices );
-			   for (int verticeIndex = 0 ; verticeIndex < nVertices ; verticeIndex++)
-			   {
+			   for (int verticeIndex = 0 ; verticeIndex < nVertices ; verticeIndex++) {
 					   unsigned vi = vertIndices[faceIndex];
 					   //unsigned ni = n_group_type == Group_Points ? vi : prim->vertex_offset() + faceIndex;
 				       // get vertex normal
@@ -353,10 +615,10 @@ void NTOA::translateGeo(GeoInfo& object)
 				       //normVec.push_back( n  );
 			   }
 		}
-		std::cout << "nFaces              : " << nFaces << std::endl;
-		std::cout << "nVertIndicesPerFace : " << nVertIndicesPerFace.size() << std::endl;
-		std::cout << "vertIndices         : " << vertIndices.size() << std::endl;
-		std::cout << "ptVec               : " << ptVec.size() << std::endl;
+		std::cout << "\tnFaces              : " << nFaces << std::endl;
+		std::cout << "\tnVertIndicesPerFace : " << nVertIndicesPerFace.size() << std::endl;
+		std::cout << "\tvertIndices         : " << vertIndices.size() << std::endl;
+		std::cout << "\tptVec               : " << ptVec.size() << std::endl;
 
 		// Vertex par face
 		AtArray *nsidesTmp = AiArrayAllocate((int)nVertIndicesPerFace.size(), 1,AI_TYPE_UINT);
@@ -374,7 +636,7 @@ void NTOA::translateGeo(GeoInfo& object)
 		AiNodeSetArray(tmpPoly, "nidxs", normIdxTmp);
 		// Vertex
 		AtArray *pntTmp = AiArrayAllocate((int)ptVec.size(), 1,AI_TYPE_POINT);
-		for(uint i = 0; (i < ptVec.size()); i++){
+		for(uint i = 0; (i < ptVec.size()); i++) {
 			AtPoint tmpPnt = AtPoint();
 			tmpPnt.x = ptVec[i].x;
 			tmpPnt.y = ptVec[i].y;
@@ -403,129 +665,41 @@ void NTOA::translateGeo(GeoInfo& object)
 
 
 	// We export the shader for the geometry
-	std::cout << "GeoInfo material class : " << object.material->Class()<< std::endl;
+	std::cout << "\tMaterial : " << object.material->Class()<< std::endl;
 	// Is it a NtoA standard?
-	if (strcmp(object.material->Class(), "ntoaStandard") == 0)
-	{
+	if (strcmp(object.material->Class(), "ntoaStandard") == 0) {
 		ntoaStandard * shaderObject = reinterpret_cast<ntoaStandard*> (object.material);
-		// create a lambert shader
-		AtNode *shaderS = AiNode("standard");
-		AiNodeSetStr(shaderS, "name", object.material->node_name().c_str());
-		AiNodeSetFlt(shaderS, "specular_roughness", object.material->knob("specular_roughness")->get_value());
-		AiNodeSetFlt(shaderS, "specular_anisotropy", object.material->knob("specular_anisotropy")->get_value());
-		AiNodeSetFlt(shaderS, "specular_rotation", object.material->knob("specular_rotation")->get_value());
-		AiNodeSetRGB(shaderS, "transmittance", shaderObject->transmittance[0], shaderObject->transmittance[1], shaderObject->transmittance[2]);
-		AiNodeSetFlt(shaderS, "Kd", object.material->knob("Kd")->get_value());
-		AiNodeSetRGB(shaderS, "Kd_color", shaderObject->Kd_color[0], shaderObject->Kd_color[1], shaderObject->Kd_color[2]);
-		AiNodeSetFlt(shaderS, "diffuse_roughness", object.material->knob("diffuse_roughness")->get_value());
-		AiNodeSetFlt(shaderS, "Ks", object.material->knob("Ks")->get_value());
-		AiNodeSetRGB(shaderS, "Ks_color", shaderObject->Ks_color[0], shaderObject->Ks_color[1], shaderObject->Ks_color[2]);
-		AiNodeSetFlt(shaderS, "Phong_exponent", object.material->knob("Phong_exponent")->get_value());
-		AiNodeSetFlt(shaderS, "Kr", object.material->knob("Kr")->get_value());
-		AiNodeSetRGB(shaderS, "Kr_color", shaderObject->Kr_color[0], shaderObject->Kr_color[1], shaderObject->Kr_color[2]);
-		AiNodeSetRGB(shaderS, "reflection_exit_color", shaderObject->reflection_exit_color[0], shaderObject->reflection_exit_color[1], shaderObject->reflection_exit_color[2]);
-		AiNodeSetBool(shaderS, "reflection_exit_use_environment", object.material->knob("reflection_exit_use_environment")->get_value());
-		AiNodeSetFlt(shaderS, "Kt", object.material->knob("Kt")->get_value());
-		AiNodeSetRGB(shaderS, "Kt_color", shaderObject->Kt_color[0], shaderObject->Kt_color[1], shaderObject->Kt_color[2]);
-		AiNodeSetRGB(shaderS, "refraction_exit_color", shaderObject->refraction_exit_color[0], shaderObject->refraction_exit_color[1], shaderObject->refraction_exit_color[2]);
-		AiNodeSetBool(shaderS, "refraction_exit_use_environment", object.material->knob("refraction_exit_use_environment")->get_value());
-		AiNodeSetFlt(shaderS, "IOR", object.material->knob("IOR")->get_value());
-		AiNodeSetFlt(shaderS, "Kb", object.material->knob("Kb")->get_value());
-		AiNodeSetBool(shaderS, "Fresnel", object.material->knob("Fresnel")->get_value());
-		AiNodeSetFlt(shaderS, "Krn", object.material->knob("Krn")->get_value());
-		AiNodeSetBool(shaderS, "specular_Fresnel", object.material->knob("specular_Fresnel")->get_value());
-		AiNodeSetFlt(shaderS, "Ksn", object.material->knob("Ksn")->get_value());
-		AiNodeSetBool(shaderS, "Fresnel_affect_diff", object.material->knob("Fresnel_affect_diff")->get_value());
-		AiNodeSetFlt(shaderS, "emission", object.material->knob("emission")->get_value());
-		AiNodeSetRGB(shaderS, "emission_color", shaderObject->emission_color[0], shaderObject->emission_color[1], shaderObject->emission_color[2]);
-		AiNodeSetFlt(shaderS, "direct_specular", object.material->knob("direct_specular")->get_value());
-		AiNodeSetFlt(shaderS, "indirect_specular", object.material->knob("indirect_specular")->get_value());
-		AiNodeSetFlt(shaderS, "direct_diffuse", object.material->knob("direct_diffuse")->get_value());
-		AiNodeSetFlt(shaderS, "indirect_diffuse", object.material->knob("indirect_diffuse")->get_value());
-		AiNodeSetBool(shaderS, "enable_glossy_caustics", object.material->knob("enable_glossy_caustics")->get_value());
-		AiNodeSetBool(shaderS, "enable_reflective_caustics", object.material->knob("enable_reflective_caustics")->get_value());
-		AiNodeSetBool(shaderS, "enable_refractive_caustics", object.material->knob("enable_refractive_caustics")->get_value());
-		AiNodeSetBool(shaderS, "enable_internal_reflections", object.material->knob("enable_internal_reflections")->get_value());
-		AiNodeSetFlt(shaderS, "Ksss", object.material->knob("Ksss")->get_value());
-		AiNodeSetRGB(shaderS, "Ksss_color", shaderObject->Ksss_color[0], shaderObject->Ksss_color[1], shaderObject->Ksss_color[2]);
-		AiNodeSetRGB(shaderS, "sss_radius", shaderObject->sss_radius[0], shaderObject->sss_radius[1], shaderObject->sss_radius[2]);
-		AiNodeSetFlt(shaderS, "bounce_factor", object.material->knob("bounce_factor")->get_value());
-		AiNodeSetRGB(shaderS, "opacity", shaderObject->opacity[0], shaderObject->opacity[1], shaderObject->opacity[2]);
-		if ( object.material->knob("specular_brdf")->get_value() == 0)
-		{
-			AiNodeSetStr(shaderS, "specular_brdf", "stretched_phong");
-		}else if( object.material->knob("specular_brdf")->get_value() == 1)
-		{
-			AiNodeSetStr(shaderS, "specular_brdf", "cook_torrance");
-		}else if( object.material->knob("specular_brdf")->get_value() == 2)
-		{
-			AiNodeSetStr(shaderS, "specular_brdf", "ward_duer");
-		}
-		AiNodeSetPtr(tmpPoly, "shader", shaderS);
-	} else {
+		AiNodeSetPtr(tmpPoly, "shader", shaderObject->AiExport(shaderObject));
+	}
+	if (strcmp(object.material->Class(), "ntoaShadowCatcher") == 0) {
 		// No so we use the shadow catcher
-		AiNodeSetPtr(tmpPoly, "shader", AiNodeLookUpByName("shadowCatcher"));
+		ntoaShadowCatcher * shaderObject = reinterpret_cast<ntoaShadowCatcher*> (object.material);
+		AtNode * shader = shaderObject->AiExport(shaderObject);
+		AiNodeSetPtr(shader, "data", static_cast <Iop *> (this)->input(0));
+		AiNodeSetPtr(tmpPoly, "shader", shader);
 	}
 }
 
-void NTOA::flagForUpdate()
-{
-	//std::cout << "flagForUpdate-start" << std::endl;
+void NTOA::flagForUpdate() {
 	if ( hash_counter==UINT_MAX )
 		hash_counter=0;
 	else
 		hash_counter++;
 	asapUpdate();
 	usleep( 0.1 * 1000000 );
-	//std::cout << "flagForUpdate-end" << std::endl;
-};
+}
 
-// The hash value must change or Nuke will think the picture is the
-// same. If you can't determine some id for the picture, you should
-// use the current time or something.
-void NTOA::append(Hash& hash)
-{
+// The hash value must change or Nuke will think the picture is the same.
+void NTOA::append(Hash& hash) {
 	hash.append(hash_counter);
-};
-
-/* This is the code for the render thread. This thread is used only to run the AiRender() process outside of the main thread.
-unsigned int RenderThread(AtVoid* data)
-{
-	std::cout << "RenderThread-start" << std::endl;
-	AiRender(AI_RENDER_MODE_CAMERA);
-	//usleep(unsigned(10 * 1000000));
-	std::cout << "RenderThread-end" << std::endl;
-};*/
-
-CameraOp* NTOA::m_getCam()
-{
-	return render_camera();
 }
 
-GeoOp* NTOA::m_getGeo()
-{
-	return render_geo();
-}
-
-void NTOA::mAbort()
-{
-	std::cout << "mAbort-start" << std::endl;
-	while(AiRendering()){
-		AiRenderAbort();
-	}
-	AiEnd();
-};
-
-void NTOA::_validate(bool for_real)
-{
+void NTOA::_validate(bool for_real) {
 	std::cout << "+_validate" << std::endl;
 	info_.full_size_format(*formats.fullSizeFormat());
 	info_.format(*formats.format());
 	info_.channels(Mask_RGBA);
 	info_.set(format());
-	//
-	//inRender = false;
-	//mAbort();
 
 	unsigned int tmpScene_hash_counter = 0; // our refresh hash counter
 
@@ -556,8 +730,7 @@ void NTOA::_validate(bool for_real)
 	// On recupere la camera
 	CameraOp* tmpCam;
 	tmpCam = render_camera();
-	if (tmpCam != 0)
-	{
+	if (tmpCam != 0) {
 		// On la valide
 		tmpCam->validate(for_real);
 		Hash tmpHash;
@@ -572,22 +745,19 @@ void NTOA::_validate(bool for_real)
 	GeoOp*       tmpGeo;
 	GeoInfo      m_geoInfos;
 	GeometryList m_geoList;
-	tmpGeo = m_getGeo();
-	if (tmpGeo != 0)
-	{
+	tmpGeo = render_geo();
+	if (tmpGeo != 0) {
 		// On la valide
 		tmpGeo->validate(for_real);
 		// variables
 		Scene m_scene;
 		//std::cout << tmpGeo->Class() << std::endl;
 		// SCENE
-		if       (strcmp(tmpGeo->Class(), "Scene") == 0)
-		{
+		if (strcmp(tmpGeo->Class(), "Scene") == 0) {
 			// On recupere la scene
 			tmpGeo->build_scene(m_scene);
 			Scene * node = &m_scene;
-			if (node!=NULL)
-			{
+			if (node!=NULL) {
 				node->evaluate_lights();
 				// Pour chaque LightContext
 				int tmpLightCount = 0;
@@ -598,22 +768,12 @@ void NTOA::_validate(bool for_real)
 					Hash tmpHash;
 					tmpHash = ltx.light()->hash();
 					tmpScene_hash_counter += tmpHash.getHash();
-					//std::cout << ltx.light()->node_name() << " " << ltx.matrix(0) <<std::endl;
-					//tmpLightCount++;
 				}
-				// Changement du nombre de light, on relance le render
-				/*if (m_light_count != tmpLightCount)
-				{
-					m_light_count = tmpLightCount;
-					std::cout << "m_light_count != tmpLightCount" << std::endl;
-					mDoRestart    = true;
-				}*/
 				// Geo???
 				GeometryList * 	m_geoList;
 				m_geoList = node->object_list();
 				int tmpGeoCount = 0;
-				if (m_geoList!=0)
-				{
+				if (m_geoList!=0) {
 					//std::cout << "Object(s) in m_geoList : " << m_geoList->objects()<< std::endl;
 					for (unsigned i = 0; i <m_geoList->objects(); i++) {
 						GeoInfo & object = m_geoList->object(i);
@@ -625,92 +785,38 @@ void NTOA::_validate(bool for_real)
 						tmpHash = tmpGeoOp->hash(Group_Matrix);
 						tmpScene_hash_counter += tmpHash.getHash();
 						tmpScene_hash_counter += object.material->hash().getHash();
-
-						//std::cout << "GeoInfo material name : " << object.material->node_name()<< std::endl;
-						//tmpGeoCount++;
 					}
 				}
-				// Changement du nombre de geo, on relance le render
-			/*if (m_geo_count != tmpGeoCount)
-			{
-			   m_geo_count = tmpGeoCount;
-			   mDoRestart  = true;
-			}*/
-
 			}
-		}/*else if (strcmp(tmpGeo->Class(), "ReadGeo2") == 0)
-		{
-			ReadGeo * node = reinterpret_cast<ReadGeo*> (tmpGeo);
-			std::cout << node->filename() << std::endl;
-		}else if (strcmp(tmpGeo->Class(), "Card2") == 0)
-		{
-			tmpGeo->build_scene(m_scene);
-			tmpGeo->get_geometry(m_scene,m_geoList);
-			std::cout << "Objects : " << m_geoList.objects() << std::endl;
-			//m_geoInfos = m_geoList.object0();
-			m_geoInfos.print_info(std::cout);
-			//std::cout << "primitives  : " << m_geoInfos.primitives() << std::endl;
-		}
-		//Cube
-		//Cylinder
-		//Sphere
-		//
-		//
-		//tmpGeo->print_info(std::cout);
-		 */
-		else
-		{
+		} else {
 			tmpGeo->validate(for_real);
-		 //mDoRestart  = true;
 		}
 	}
 	//
-	if (tmpScene_hash_counter != scene_hash_counter)
-	{
+	if (tmpScene_hash_counter != scene_hash_counter) {
 		scene_hash_counter = tmpScene_hash_counter;
-		//mAbort();
 	}
 }
 
-void NTOA::_open()
-{
+void NTOA::_open() {
 	std::cout << " -> Start : _open"<< std::endl;
-	//node->inRender = true;
+	// Init buffer
 	m_buffer.init(formats.format()->width(),formats.format()->height());
-	// start an Arnold session
-	AiBegin();
-	//AiLoadPlugins("/home/ndu/workspace/ntoaShadowCatcher/Debug");
-	AiNodeSetInt(AiUniverseGetOptions(), "threads", 6);
-	AiNodeSetInt(AiUniverseGetOptions(), "preserve_scene_data", true);
-	AiMsgSetLogFileName("scene1.log");
-	AiNodeEntryInstall(AI_NODE_DRIVER, AI_TYPE_RGBA, "ntoa_drv", "<built-in>", ntoa_driver_std, AI_VERSION);
-
-	// shadow catcher
-	AiNodeEntryInstall(AI_NODE_SHADER, AI_TYPE_RGBA, "fb_ShadowMtd", "<built-in>", fb_ShadowMtd, AI_VERSION);
-	AtNode *shader = AiNode("fb_ShadowMtd");
-	AiNodeSetStr(shader, "name", "shadowCatcher");
-	AiNodeSetRGBA(shader, "color", 0.0f, 0.0f, 0.0f , 1.0f);
-	AiNodeSetPtr(shader, "data", static_cast <Iop *> (this)->input(0));
-
-	// Options
-	translateOptions(this);
-
-	// Sky
-	translateSky(this);
-
-	// create a perspective camera
-	translateCamera(render_camera());
+	// start an Arnold session, now all call to Arnold API is safe
+	startArnold();
 
 	// We now process the scene graph
-	translateScene(this);
+	translateScene();
 
-	//AiASSWrite("/home/ndu/scene.ass", AI_NODE_ALL, false);
+	//AiASSWrite("NtoA.ass", AI_NODE_ALL, false);
 	AiRender(AI_RENDER_MODE_CAMERA);
+
 	// at this point we can shut down Arnold
-	AiEnd();
+	stopArnold();
 	//flagForUpdate();
 
 }
+
 void NTOA::engine(int y, int xx, int r, ChannelMask channels, Row& row)
 {
 	//
@@ -725,10 +831,8 @@ void NTOA::engine(int y, int xx, int r, ChannelMask channels, Row& row)
 	unsigned int yyy = static_cast<unsigned int> (y);
 	// don't have a buffer yet
 	m_buffer.m_mutex.lock();
-	if ( m_buffer._width==0 && m_buffer._height==0 )
-	{
-		while (rOut < END)
-		{
+	if ( m_buffer._width==0 && m_buffer._height==0 ) {
+		while (rOut < END) {
 			*rOut = *gOut = *bOut = *aOut = 0.25f;
 			++rOut;
 			++gOut;
@@ -737,17 +841,11 @@ void NTOA::engine(int y, int xx, int r, ChannelMask channels, Row& row)
 			++xxx;
 
 		}
-	}
-	else
-	{
-		while (rOut < END)
-		{
-			if ( xxx >= m_buffer._width || yyy >= m_buffer._height )
-			{
+	} else {
+		while (rOut < END) {
+			if ( xxx >= m_buffer._width || yyy >= m_buffer._height ) {
 				*rOut = *gOut = *bOut = *aOut = 0.f;
-			}
-			else
-			{
+			} else {
 				*rOut = m_buffer.get(xxx, yyy).r;
 				*gOut = m_buffer.get(xxx, yyy).g;
 				*bOut = m_buffer.get(xxx, yyy).b;
@@ -761,113 +859,5 @@ void NTOA::engine(int y, int xx, int r, ChannelMask channels, Row& row)
 		}
 	}
 	m_buffer.m_mutex.unlock();
-};
-
-void NTOA::knobs(Knob_Callback f)
-{
-   Format_knob(f, &formats, "format");
-	//File_knob(f, &m_assFile, "ass_file", "Ass file");
-	Int_knob(f, &m_aa_samples, "aa_samples", "AA Samples");
-	Int_knob(f, &m_diffuse_depth, "m_diffuse_depth", "GI diffuse depth");
-	Int_knob(f, &m_glossy_depth, "m_glossy_depth", "GI glossy depth");
-	Int_knob(f, &m_reflection_depth, "m_reflection_depth", "GI reflection depth");
-	Int_knob(f, &m_refraction_depth, "m_refraction_depth", "GI refraction depth");
-	Int_knob(f, &m_total_depth, "m_total_depth", "GI total depth");
-	Int_knob(f, &m_diffuse_samples, "m_diffuse_samples", "GI diffuse samples");
-	Int_knob(f, &m_sss_hemi_samples, "m_sss_hemi_samples", "GI sss hemi samples");
-	Int_knob(f, &m_glossy_samples, "m_glossy_samples", "GI glossy samples");
-	// Camera
-	Tab_knob(f, "Camera");
-	Bool_knob(f, &m_cam_dof, "cam_dof", "Camera DOF");
-	Float_knob(f, &m_focal_distance, "focal_distance", "Camera focal distance");
-	Float_knob(f, &m_aperture_size, "aperture_size", "Camera aperture size");
-	Int_knob(f, &m_aperture_blades, "aperture_blades", "Camera aperture blades");
-	Float_knob(f, &m_aperture_rotation, "aperture_rotation", "Camera aperture rotation");
-	Float_knob(f, &m_aperture_blade_curvature, "aperture_blade_curvature", "Camera aperture blade curvature");
-	Float_knob(f, &m_aperture_aspect_ratio, "aperture_aspect_ratio", "Camera aperture aspect ratio");
-	// Sky
-	Tab_knob(f, "Sky");
-	Bool_knob(f, &m_sky_active, "sky_active", "Active");
-	Color_knob(f, (float*)&m_sky_color, "sky_color", "Color");
-	Float_knob(f, &m_sky_intensity, "sky_intensity", "Intensity");
-	Bool_knob(f, &m_sky_visibility, "sky_visibility", "Visibility");
-	//AiNodeSetRGB(sky, "color", 1.0f, 1.0f, 1.0f );*/
-};
-
-//mAbort();
-int NTOA::knob_changed(Knob* knb)
-{
-	if (knb != NULL) {
-		if       (knb->name() && strcmp(knb->name(), "format") == 0)
-		{
-			//m_mutex.lock();
-			//Format & tmpFormat = (Format &)format();
-			//m_buffer.init(tmpFormat.width(),tmpFormat.height());
-			//m_buffer.init(1920,1080);
-			//m_mutex.unlock();
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "ass_file") == 0)
-		{
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "aa_samples") == 0)
-		{
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "m_diffuse_depth") == 0)
-		{
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "m_glossy_depth") == 0)
-		{
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "m_reflection_depth") == 0)
-		{
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "m_refraction_depth") == 0)
-		{
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "m_total_depth") == 0)
-		{
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "m_diffuse_samples") == 0)
-		{
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "m_sss_hemi_samples") == 0)
-		{
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "m_glossy_samples") == 0)
-		{
-			mAbort();
-			return 1;
-		}else if (knb->name() && strcmp(knb->name(), "cam_dof") == 0)
-		{
-			//if (knob("focal_distance") != 0)           knob("focal_distance")->enable(m_cam_dof);
-			//if (knob("aperture_size") != 0)            knob("aperture_size")->enable(m_cam_dof);
-			//if (knob("aperture_blades") != 0)          knob("aperture_blades")->enable(m_cam_dof);
-			//if (knob("aperture_rotation") != 0)        knob("aperture_rotation")->enable(m_cam_dof);
-			//if (knob("aperture_blade_curvature") != 0) knob("aperture_blade_curvature")->enable(m_cam_dof);
-			//if (knob("aperture_aspect_ratio") != 0)    knob("aperture_aspect_ratio")->enable(m_cam_dof);
-			//std::cout << " " << render_geo()->scene() << std::endl;
-			//render(0,0,this);
-			//Thread::spawn(::render, 1, this);
-			//AiASSWrite("/3d/ndumay/scene2.ass", AI_NODE_ALL, false);
-			//mAbort();
-			return 1;
-		}
-
-		//inRender = true;
-		//return 1;
-		//startRender(0,0,this);
-		//return 1;
-	}
-	return 0;
-};
+}
 

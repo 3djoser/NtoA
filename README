@@ -23,23 +23,38 @@
 
 Hi open world!
 
-Some years ago i wrote this toy. Basically it's an Arnold replacement for Nuke's scanline renderer.
-I've played around the code for two weeks and never had the time to return to it. Since I don't have
-access to Nuke anymore and because from time to time someone ask me about NtoA. Because i believe
-that there is room for that kind of tool and I would like to contribute back to the open world.
-I commit this code as is. You might found some comments in French (prints are in English...) I'm
-almost sure that Arnold part won't compile since the API have changed and I didn't know for the Nuke part.
-But all in all it worked at some point in the time. It was reading .ass and rendering it in a Nuke graph.
-It was also able to get geometry, lights and the camera from a Nuke graph. It was comming with an AiStandard
-equivalent and a Shadow caster that was taking GI in account. Even if I'm pretty sure that it can't work in batch
-and i was getting segfaults because Arnold's updates was too fast for Nuke's viewport, well it may help someone as a
-starting point.
+Some years ago i wrote this toy. Basically it use Arnold to replace Nuke's scanline renderer.
+It compile and run on Nuke 8.0vX and Arnold 4.1.x.x under Linux with Eclipse.
 
-So hope this help and if possible try to contribute back to the code.
+Working Nuke nodes:
+Cube
+ReadGeo
+Sphere
+DirectLight
+Point
+Spotlight
+Camera
+ntoaStandard
+ntoaShadowCatcher
 
-DjO
+Current limitation:
+ Motion blur and IPR doesn't work for the moment. While getting motion blur should come soon with Alembic support, IPR might take some times.
+ Some parameters or Options are missing.
+ 
+This code is NOT in a state to be used in production yet.
 
-20140602 : Code cleanings!!!
+Hope this help and if possible try to contribute back to the code :)
+
+20140606 :
+ - Major code cleaning and refactoring
+ - The shadow catcher is no longer apply automatically and come with it's own node like ntoaStandard
+ - More Arnold's option implemented
+ - Various bug fixes
+ - Render size is no longer limited to 640*480
+ - Sequence rendering works
+
+20140602 :
+ Code cleaning!!!
  This version of the code is a bit cleaner and missing parts have been added. Now it should compile with Nuke 8.0 and Arnold 4.1.x
 and "kind of" work.
  I have added a sample scene. Since the code is not very stable please reconnect the viewer to the Merge. Wait for the full render to
